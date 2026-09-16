@@ -1,3 +1,7 @@
+                    /* TO DO */
+/* - Show whether its low, lower, or high, higher */
+/* - Convert the game to Rust */
+
 import java.util.Scanner;
 
 public class GuessNumbers {
