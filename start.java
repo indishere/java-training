@@ -1,5 +1,5 @@
-int num = 5; // declaring a variable
-num = 5 + 7; // using the var
+int num = 5;
+num = 5 + 7; 
 num = num * 2;
 
 float dec;
