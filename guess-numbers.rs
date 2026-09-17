@@ -1,13 +1,18 @@
+use std::cmp::Ordering;
 use std::io::{self, Write};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn random_number() -> i32 {
-    let nanos = SystemTime::now()
+    let duration = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .expect("System time is before Unix epoch")
-        .as_nanos() as u64;
+        .expect("System time is before Unix epoch");
 
-    (nanos % 100) as i32 + 1
+    let mut value = duration.as_nanos() as u64 ^ duration.as_secs();
+    value ^= value << 13;
+    value ^= value >> 7;
+    value ^= value << 17;
+
+    (value % 100 + 1) as i32
 }
 
 fn main() {
@@ -18,37 +23,39 @@ fn main() {
         io::stdout().flush().expect("Failed to flush output");
 
         let mut input = String::new();
-        io::stdin()
-            .read_line(&mut input)
-            .expect("Failed to read input");
-
-        let guess: i32 = match input.trim().parse() {
-            Ok(number) => number,
+        let bytes_read = match io::stdin().read_line(&mut input) {
+            Ok(bytes) => bytes,
             Err(_) => {
-                println!("Please enter a whole number.");
+                println!("Enter a whole number dummy.");
                 continue;
             }
         };
 
-        if guess < 1 || guess > 100 {
-            println!("Please enter a number between 1 and 100.");
+        if bytes_read == 0 {
+            println!();
+            return;
+        }
+
+        let user_guess: i32 = match input.trim().parse() {
+            Ok(number) => number,
+            Err(_) => {
+                println!("Enter a whole number dummy.");
+                continue;
+            }
+        };
+
+        if !(1..=100).contains(&user_guess) {
+            println!("Bro. BETWEEN 1 and 100.");
             continue;
         }
 
-        if guess == secret_number {
-            println!("NO WAY you guessed the freakin number: {}", secret_number);
-            break;
-        } else if guess < secret_number {
-            println!(
-                "Haha SUCKKERRRRR. Your guess is too low. You guessed it wrong! The number was {}",
-                secret_number
-            );
-        } else {
-            println!(
-                "Haha SUCKKERRRRR. Your guess is too high. You guessed it wrong! The number was {}",
-                secret_number
-            );
+        match user_guess.cmp(&secret_number) {
+            Ordering::Less => println!("Haha SUCKKERRRRR. Too low. Try again!"),
+            Ordering::Greater => println!("Haha SUCKKERRRRR. Too high. Try again!"),
+            Ordering::Equal => {
+                println!("NO WAY you guessed the freakin number: {}", secret_number);
+                return;
+            }
         }
-        println!("Try again! Guess a number between 1 and 100:");
     }
 }

@@ -1,51 +1,52 @@
 package main
 
 import (
-    "bufio"
-    "fmt"
-    "math/rand"
-    "os"
-    "strconv"
-    "strings"
-    "time"
+	"bufio"
+	"fmt"
+	"math/rand"
+	"os"
+	"strconv"
+	"strings"
+	"time"
 )
 
 func main() {
-    rand.Seed(time.Now().UnixNano())
-    secretNumber := rand.Intn(100) + 1
+	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+	secretNumber := rng.Intn(100) + 1
 
-    reader := bufio.NewReader(os.Stdin)
+	scanner := bufio.NewScanner(os.Stdin)
 
-    for {
-        fmt.Print("Guess a number between 1 and 100: ")
+	for {
+		fmt.Print("Guess a number between 1 and 100: ")
 
-        input, err := reader.ReadString('\n')
-        if err != nil {
-            fmt.Println("Please enter a whole number.")
-            continue
-        }
+		if !scanner.Scan() {
+			fmt.Println()
+			return
+		}
 
-        input = strings.TrimSpace(input)
-        guess, err := strconv.Atoi(input)
-        if err != nil {
-            fmt.Println("Please enter a whole number.")
-            continue
-        }
+		input := strings.TrimSpace(scanner.Text())
+		userGuess, err := strconv.Atoi(input)
+		if err != nil {
+			fmt.Println("Enter a whole number dummy.")
+			continue
+		}
 
-        if guess < 1 || guess > 100 {
-            fmt.Println("Please enter a number between 1 and 100.")
-            continue
-        }
+		if userGuess < 1 || userGuess > 100 {
+			fmt.Println("Bro. BETWEEN 1 and 100.")
+			continue
+		}
 
-        if guess == secretNumber {
-            fmt.Printf("NO WAY you guessed the freakin number: %d\n", secretNumber)
-            return
-        } else if guess < secretNumber {
-            fmt.Printf("Haha SUCKKERRRRR. Your guess is too low. You guessed it wrong! The number was %d\n", secretNumber)
-        } else {
-            fmt.Printf("Haha SUCKKERRRRR. Your guess is too high. You guessed it wrong! The number was %d\n", secretNumber)
-        }
+		if userGuess < secretNumber {
+			fmt.Println("Haha SUCKKERRRRR. Too low. Try again!")
+			continue
+		}
 
-        fmt.Println("Try again! Guess a number between 1 and 100:")
-    }
+		if userGuess > secretNumber {
+			fmt.Println("Haha SUCKKERRRRR. Too high. Try again!")
+			continue
+		}
+
+		fmt.Printf("NO WAY you guessed the freakin number: %d\n", secretNumber)
+		return
+	}
 }
