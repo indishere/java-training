@@ -1,3 +1,5 @@
+/* TO MY TEACHER: Please note that this is deprecated code. Refer to @guess-numbers.rs and @guess-numbers.go for the latest code. */
+
 import java.util.Scanner;
 
 public class guessNumbers {
