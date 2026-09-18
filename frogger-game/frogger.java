@@ -1,4 +1,4 @@
-import java.awt.Graphics;
+import java.awt.*;
 import javax.swing.JFrame;
 import javax.swing.SwingUtilities;
 
@@ -19,7 +19,10 @@ public class frogger extends JFrame {
         super.paint(graphics); // Draw the normal window before drawing our game.
 
         // Draw a rectangle: x, y, width, height.
-        graphics.fillRect(100, 100, 50, 75);
+        graphics.setColor(Color.GREEN);
+        graphics.fillRect(150, 150, 50, 50);
+        graphics.setColor(Color.BLUE);
+        graphics.drawRect(150, 150, 50, 50);
     }
 
     // Java starts running here.
