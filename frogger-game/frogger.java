@@ -18,11 +18,21 @@ public class frogger extends JFrame {
     public void paint(Graphics graphics) {
         super.paint(graphics); // Draw the normal window before drawing our game.
 
-        // Draw a rectangle: x, y, width, height.
-        graphics.setColor(Color.GREEN);
-        graphics.fillRect(150, 150, 50, 50);
-        graphics.setColor(Color.BLUE);
-        graphics.drawRect(150, 150, 50, 50);
+        int centerX = getWidth() / 2;
+        int centerY = getHeight() / 2;
+        int faceSize = 120;
+
+        graphics.setColor(Color.YELLOW);
+        graphics.fillOval(centerX - faceSize / 2, centerY - faceSize / 2, faceSize, faceSize);
+
+        graphics.setColor(Color.BLACK);
+        graphics.drawOval(centerX - faceSize / 2, centerY - faceSize / 2, faceSize, faceSize);
+
+        graphics.fillOval(centerX - 20, centerY - 20, 10, 10);
+        graphics.fillOval(centerX + 10, centerY - 20, 10, 10);
+
+        graphics.setColor(Color.RED);
+        graphics.drawArc(centerX - 30, centerY - 10, 60, 40, 210, 120);
     }
 
     // Java starts running here.
