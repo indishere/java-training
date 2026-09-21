@@ -3,6 +3,10 @@ import javax.swing.JFrame;
 import javax.swing.SwingUtilities;
 
 // This is the main window for the Frogger game.
+
+            /* GLOBAL VARIABLES */
+public 
+
 public class frogger extends JFrame {
 
     // Set up the window when we create a new Frogger game.

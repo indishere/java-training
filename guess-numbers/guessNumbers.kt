@@ -8,7 +8,7 @@ fun main() {
         print("Guess a number between 1 and 100: ")
 
         // toIntOrNull returns null instead of crashing when the input is not a whole number.
-        val input = readLine()
+        val input = readlnOrNull()
         val guessedNumber = input?.trim()?.toIntOrNull()
 
         if (guessedNumber == null) {
