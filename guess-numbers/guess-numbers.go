@@ -1,3 +1,5 @@
+// Converted from java to Go by ChatGPT 5.6 Sol
+
 package main
 
 import (

@@ -1,3 +1,5 @@
+// Converted from java to Rust by ChatGPT 5.6 Sol
+
 use std::io;
 use std::time::{SystemTime, UNIX_EPOCH};
 
