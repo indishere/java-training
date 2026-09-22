@@ -3,6 +3,7 @@ import java.awt.*;
 import java.awt.event.*;
 import javax.swing.*;
 
+
 // Main window for the Frogger game.
 public class frogger extends JFrame implements KeyListener {
     int frogX = 200;
@@ -62,14 +63,17 @@ public class frogger extends JFrame implements KeyListener {
     }
 
     public void checkEdges() {
-        int rightEdge = getContentPane().getWidth() - frogSize;
-        int bottomEdge = getContentPane().getHeight() - frogSize;
+        Insets borders = getInsets();
+        int leftEdge = borders.left;
+        int rightEdge = getWidth() - borders.right - frogSize;
+        int topEdge = borders.top;
+        int bottomEdge = getHeight() - borders.bottom - frogSize;
 
         // Start growing before the frog reaches each edge.
-        if (movingLeft && frogX <= expandDistance) {
+        if (movingLeft && frogX <= leftEdge + expandDistance) {
             if (getWidth() < screenSize.width) {
                 growLeft();
-            } else if (frogX < 0) {
+            } else if (frogX < leftEdge) {
                 frogX = rightEdge;
             }
         }
@@ -78,14 +82,14 @@ public class frogger extends JFrame implements KeyListener {
             if (getWidth() < screenSize.width) {
                 growRight();
             } else if (frogX > rightEdge) {
-                frogX = 0;
+                frogX = leftEdge;
             }
         }
 
-        if (movingUp && frogY <= expandDistance) {
+        if (movingUp && frogY <= topEdge + expandDistance) {
             if (getHeight() < screenSize.height) {
                 growUp();
-            } else if (frogY < 0) {
+            } else if (frogY < topEdge) {
                 frogY = bottomEdge;
             }
         }
@@ -94,7 +98,7 @@ public class frogger extends JFrame implements KeyListener {
             if (getHeight() < screenSize.height) {
                 growDown();
             } else if (frogY > bottomEdge) {
-                frogY = 0;
+                frogY = topEdge;
             }
         }
     }
@@ -105,8 +109,9 @@ public class frogger extends JFrame implements KeyListener {
             frogX = frogX + frogSpeed;
         } else {
             setSize(getWidth() + frogSpeed, getHeight());
-            if (frogX < 0) {
-                frogX = 0;
+            int leftEdge = getInsets().left + expandDistance;
+            if (frogX < leftEdge) {
+                frogX = leftEdge;
             }
         }
     }
@@ -125,8 +130,9 @@ public class frogger extends JFrame implements KeyListener {
             frogY = frogY + frogSpeed;
         } else {
             setSize(getWidth(), getHeight() + frogSpeed);
-            if (frogY < 0) {
-                frogY = 0;
+            int topEdge = getInsets().top + expandDistance;
+            if (frogY < topEdge) {
+                frogY = topEdge;
             }
         }
     }
