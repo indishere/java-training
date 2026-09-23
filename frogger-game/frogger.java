@@ -10,12 +10,19 @@ public class frogger extends JFrame implements KeyListener {
     int frogY = 200;
     int frogSize = 50;
     int frogSpeed = 5;
+    int frogSpeedBoost = 40;
+    int frogSpeedBoostCooldown = 500;
     int expandDistance = 10;
+    long lastFrogSpeedBoostTime = 0;
+
+    int carX
+    int carY
 
     boolean movingUp = false;
     boolean movingLeft = false;
     boolean movingDown = false;
     boolean movingRight = false;
+    boolean spaceBarDown = false;
 
     Dimension screenSize = Toolkit.getDefaultToolkit().getScreenSize();
     Timer timer;
@@ -58,8 +65,24 @@ public class frogger extends JFrame implements KeyListener {
         if (movingRight) {
             frogX = frogX + frogSpeed;
         }
-
         checkEdges();
+    }
+
+    public void boostFrog() {
+        long currentTime = System.currentTimeMillis();
+
+        if (currentTime - lastFrogSpeedBoostTime < frogSpeedBoostCooldown) {
+            return;
+        }
+
+        if (movingUp || movingLeft || movingDown || movingRight) {
+            int normalFrogSpeed = frogSpeed;
+            frogSpeed = frogSpeedBoost;
+            moveFrog();
+            frogSpeed = normalFrogSpeed;
+            lastFrogSpeedBoostTime = currentTime;
+            repaint();
+        }
     }
 
     public void checkEdges() {
@@ -147,32 +170,39 @@ public class frogger extends JFrame implements KeyListener {
 
     @Override
     public void keyPressed(KeyEvent event) {
-        if (event.getKeyCode() == KeyEvent.VK_E) {
+        if (event.getKeyCode() == KeyEvent.VK_SPACE && !spaceBarDown) {
+            spaceBarDown = true;
+            boostFrog();
+        }
+        if (event.getKeyCode() == KeyEvent.VK_E || event.getKeyCode() == KeyEvent.VK_UP) {
             movingUp = true;
         }
-        if (event.getKeyCode() == KeyEvent.VK_S) {
+        if (event.getKeyCode() == KeyEvent.VK_S || event.getKeyCode() == KeyEvent.VK_LEFT) {
             movingLeft = true;
         }
-        if (event.getKeyCode() == KeyEvent.VK_D) {
+        if (event.getKeyCode() == KeyEvent.VK_D || event.getKeyCode() == KeyEvent.VK_DOWN) {
             movingDown = true;
         }
-        if (event.getKeyCode() == KeyEvent.VK_F) {
+        if (event.getKeyCode() == KeyEvent.VK_F || event.getKeyCode() == KeyEvent.VK_RIGHT) {
             movingRight = true;
         }
     }
 
     @Override
     public void keyReleased(KeyEvent event) {
-        if (event.getKeyCode() == KeyEvent.VK_E) {
+        if (event.getKeyCode() == KeyEvent.VK_SPACE) {
+            spaceBarDown = false;
+        }
+        if (event.getKeyCode() == KeyEvent.VK_E || event.getKeyCode() == KeyEvent.VK_UP) {
             movingUp = false;
         }
-        if (event.getKeyCode() == KeyEvent.VK_S) {
+        if (event.getKeyCode() == KeyEvent.VK_S || event.getKeyCode() == KeyEvent.VK_LEFT) {
             movingLeft = false;
         }
-        if (event.getKeyCode() == KeyEvent.VK_D) {
+        if (event.getKeyCode() == KeyEvent.VK_D || event.getKeyCode() == KeyEvent.VK_DOWN) {
             movingDown = false;
         }
-        if (event.getKeyCode() == KeyEvent.VK_F) {
+        if (event.getKeyCode() == KeyEvent.VK_F || event.getKeyCode() == KeyEvent.VK_RIGHT) {
             movingRight = false;
         }
     }
