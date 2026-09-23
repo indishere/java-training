@@ -1,4 +1,4 @@
-// DO NOT FUCK WITH THE IMPORTS
+// DO NOT FUCK WITH THOSE IMPORTS
 import java.awt.*;
 import java.awt.event.*;
 import javax.swing.*;
