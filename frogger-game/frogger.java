@@ -1,11 +1,12 @@
 // DO NOT FUCK WITH THOSE IMPORTS
 import java.awt.*;
+import java.awt.image.*;
 import java.awt.event.*;
 import javax.swing.*;
 
 // ====================================== FROGGER GAME ======================================= //
+public class frogger extends JFrame implements KeyListener, ActionListener {
 
-public class frogger extends JFrame implements KeyListener {
 
     // ------------------------------ START OF VARIABLES ------------------------------ //
 
@@ -18,6 +19,7 @@ public class frogger extends JFrame implements KeyListener {
 
     // Player (the frog)
     final int playerSize = 50;
+    final int playerRadius = playerSize / 2;
     final int playerSpeed = 5;
     final int playerStartGap = playerSize / 2;
     final Color playerColor = Color.GREEN;
@@ -30,7 +32,7 @@ public class frogger extends JFrame implements KeyListener {
     long lastBoostTime = 0;
 
     // Roads
-    final int roadHeight = playerSize * 3;
+    final int roadHeight = (int) (playerSize * 3 * 1.25);
     final int roadGap = playerSize;
     final Color roadColor = Color.DARK_GRAY;
     int roadX = 0;
@@ -38,11 +40,24 @@ public class frogger extends JFrame implements KeyListener {
     int roadOneY = 0;
     int roadTwoY = 0;
 
-    // Road Lines
-    final int dashLength = 30;
-    final int dashGap = 30;
-    final int dashThickness = 4;
-    final Color dashColor = Color.WHITE;
+    // Vehicles
+    final String imageFolder = "assets/images/";
+    final String[] vehicleNames = { "car", "truck", "bus" };
+    final int[] vehicleSpeeds = { 7, 5, 4 };
+    final int vehiclePadding = 5;
+    final int vehicleHeight = roadHeight - vehiclePadding * 2;
+    BufferedImage[] vehicleLeftImages = new BufferedImage[vehicleNames.length];
+    BufferedImage[] vehicleRightImages = new BufferedImage[vehicleNames.length];
+    java.util.ArrayList<Vehicle> vehicles = new java.util.ArrayList<>();
+
+    // Spawning
+    final int spawnDelay = 10000;
+    final int roadTwoSpawnOffset = 5000;
+    long nextRoadOneSpawn = 0;
+    long nextRoadTwoSpawn = 0;
+
+    // Collision
+    final int minVisibleAlpha = 128;
 
     // Controls
     boolean movingUp = false;
@@ -66,11 +81,18 @@ public class frogger extends JFrame implements KeyListener {
         getContentPane().setBackground(backgroundColor);
         setFocusable(true);
         addKeyListener(this);
+        loadVehicleImages();
 
-        gameTimer = new Timer(frameDelay, event -> {
-            movePlayer(playerSpeed);
-            repaint();
-        });
+        gameTimer = new Timer(frameDelay, this);
+    }
+
+    public void startGame() {
+        long currentTime = System.currentTimeMillis();
+
+        updateRoads();
+        placePlayerAtStart();
+        nextRoadOneSpawn = currentTime;
+        nextRoadTwoSpawn = currentTime + roadTwoSpawnOffset;
         gameTimer.start();
     }
 
@@ -81,16 +103,28 @@ public class frogger extends JFrame implements KeyListener {
     }
 
 
+    // ---------------------------------- GAME LOOP ----------------------------------- //
+    @Override
+    public void actionPerformed(ActionEvent event) {
+        updateRoads();
+        movePlayer(playerSpeed);
+        spawnVehicles();
+        moveVehicles();
+        checkCollisions();
+        repaint();
+    }
+
+
     // ---------------------------------- MAIN DRAW ----------------------------------- //
     @Override
     public void paint(Graphics graphics) {
-        
         // Draw on an off-screen image first so the screen doesn't flash
         Image buffer = createImage(getWidth(), getHeight());
         Graphics bufferGraphics = buffer.getGraphics();
 
         drawBackground(bufferGraphics);
         drawRoads(bufferGraphics);
+        drawVehicles(bufferGraphics);
         drawPlayer(bufferGraphics);
 
         graphics.drawImage(buffer, 0, 0, null);
@@ -115,22 +149,141 @@ public class frogger extends JFrame implements KeyListener {
     }
 
     public void drawRoads(Graphics graphics) {
-        updateRoads();
         drawRoad(graphics, roadOneY);
         drawRoad(graphics, roadTwoY);
     }
 
     public void drawRoad(Graphics graphics, int roadY) {
-        // Road
         graphics.setColor(roadColor);
         graphics.fillRect(roadX, roadY, roadWidth, roadHeight);
+    }
 
-        // Dashed line in the middle
-        graphics.setColor(dashColor);
-        int dashY = roadY + (roadHeight - dashThickness) / 2;
-        for (int dashX = roadX; dashX < roadX + roadWidth; dashX += dashLength + dashGap) {
-            graphics.fillRect(dashX, dashY, dashLength, dashThickness);
+
+    // -------------------------------- VEHICLE SYSTEM -------------------------------- //
+    public void loadVehicleImages() {
+        for (int type = 0; type < vehicleNames.length; type++) {
+            vehicleLeftImages[type] = loadVehicleImage(vehicleNames[type] + "_left.png");
+            vehicleRightImages[type] = loadVehicleImage(vehicleNames[type] + "_right.png");
         }
+    }
+
+    public BufferedImage loadVehicleImage(String fileName) {
+        Image original = new ImageIcon(imageFolder + fileName).getImage();
+        int vehicleWidth = original.getWidth(null) * vehicleHeight / original.getHeight(null);
+
+        // Resize once here so we can read its pixels later for collision
+        BufferedImage resized = new BufferedImage(vehicleWidth, vehicleHeight, BufferedImage.TYPE_INT_ARGB);
+        Graphics graphics = resized.getGraphics();
+        graphics.drawImage(original, 0, 0, vehicleWidth, vehicleHeight, null);
+        graphics.dispose();
+
+        return resized;
+    }
+
+    public void spawnVehicles() {
+        long currentTime = System.currentTimeMillis();
+
+        // Road One (drives left to right)
+        if (currentTime >= nextRoadOneSpawn) {
+            spawnVehicle(roadOneY, true);
+            nextRoadOneSpawn += spawnDelay;
+        }
+
+        // Road Two (drives right to left)
+        if (currentTime >= nextRoadTwoSpawn) {
+            spawnVehicle(roadTwoY, false);
+            nextRoadTwoSpawn += spawnDelay;
+        }
+    }
+
+    public void spawnVehicle(int roadY, boolean isMovingRight) {
+        int type = (int) (Math.random() * vehicleNames.length);
+        int vehicleY = roadY + vehiclePadding;
+
+        if (isMovingRight) {
+            BufferedImage image = vehicleRightImages[type];
+            vehicles.add(new Vehicle(image, roadX - image.getWidth(), vehicleY, vehicleSpeeds[type]));
+        } else {
+            BufferedImage image = vehicleLeftImages[type];
+            vehicles.add(new Vehicle(image, roadX + roadWidth, vehicleY, -vehicleSpeeds[type]));
+        }
+    }
+
+    public void moveVehicles() {
+        // Go backwards so removing a vehicle doesn't skip the next one
+        for (int index = vehicles.size() - 1; index >= 0; index--) {
+            Vehicle vehicle = vehicles.get(index);
+            vehicle.x += vehicle.speed;
+
+            boolean isPastRightEdge = vehicle.x > roadX + roadWidth;
+            boolean isPastLeftEdge = vehicle.x + vehicle.image.getWidth() < roadX;
+
+            if (isPastRightEdge || isPastLeftEdge) {
+                vehicles.remove(index);
+            }
+        }
+    }
+
+    public void drawVehicles(Graphics graphics) {
+        for (Vehicle vehicle : vehicles) {
+            graphics.drawImage(vehicle.image, vehicle.x, vehicle.y, null);
+        }
+    }
+
+
+    // ------------------------------- COLLISION SYSTEM ------------------------------- //
+    public void checkCollisions() {
+        for (Vehicle vehicle : vehicles) {
+            if (isPlayerHitting(vehicle)) {
+                placePlayerAtStart();
+                return;
+            }
+        }
+    }
+
+    public boolean isPlayerHitting(Vehicle vehicle) {
+        // Quick check: skip vehicles whose box doesn't touch the player's box
+        boolean boxesTouch = playerX < vehicle.x + vehicle.image.getWidth()
+                && playerX + playerSize > vehicle.x
+                && playerY < vehicle.y + vehicleHeight
+                && playerY + playerSize > vehicle.y;
+
+        if (!boxesTouch) {
+            return false;
+        }
+
+        // Pixel check: look for a pixel that is inside the frog AND on a visible part of the vehicle
+        for (int pixelY = playerY; pixelY < playerY + playerSize; pixelY++) {
+            for (int pixelX = playerX; pixelX < playerX + playerSize; pixelX++) {
+                if (isInsidePlayer(pixelX, pixelY) && isVisiblePixel(vehicle, pixelX, pixelY)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    public boolean isInsidePlayer(int pixelX, int pixelY) {
+        int distanceX = pixelX - (playerX + playerRadius);
+        int distanceY = pixelY - (playerY + playerRadius);
+
+        return distanceX * distanceX + distanceY * distanceY <= playerRadius * playerRadius;
+    }
+
+    public boolean isVisiblePixel(Vehicle vehicle, int pixelX, int pixelY) {
+        int imageX = pixelX - vehicle.x;
+        int imageY = pixelY - vehicle.y;
+
+        boolean isOnImage = imageX >= 0 && imageX < vehicle.image.getWidth()
+                && imageY >= 0 && imageY < vehicle.image.getHeight();
+
+        if (!isOnImage) {
+            return false;
+        }
+
+        Color pixelColor = new Color(vehicle.image.getRGB(imageX, imageY), true);
+        return pixelColor.getAlpha() >= minVisibleAlpha;
     }
 
 
@@ -310,7 +463,23 @@ public class frogger extends JFrame implements KeyListener {
     public static void main(String[] args) {
         frogger gameWindow = new frogger();
         gameWindow.setVisible(true);
-        gameWindow.placePlayerAtStart();
+        gameWindow.startGame();
+    }
+
+
+    // -------------------------------- VEHICLE CLASS --------------------------------- //
+    class Vehicle {
+        BufferedImage image;
+        int x;
+        int y;
+        int speed;
+
+        Vehicle(BufferedImage image, int x, int y, int speed) {
+            this.image = image;
+            this.x = x;
+            this.y = y;
+            this.speed = speed;
+        }
     }
 }
 
