@@ -14,9 +14,7 @@ public class frogger extends JFrame implements KeyListener {
     int frogSpeedBoostCooldown = 500;
     int expandDistance = 10;
     long lastFrogSpeedBoostTime = 0;
-
-    int carX
-    int carY
+    
 
     boolean movingUp = false;
     boolean movingLeft = false;
@@ -29,7 +27,7 @@ public class frogger extends JFrame implements KeyListener {
 
     public frogger() {
         setTitle("Frogger");
-        setSize(400, 300);
+        setSize(screenSize.width, screenSize.height);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
         getContentPane().setBackground(Color.BLACK);
