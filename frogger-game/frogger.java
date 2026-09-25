@@ -3,214 +3,315 @@ import java.awt.*;
 import java.awt.event.*;
 import javax.swing.*;
 
+// ====================================== FROGGER GAME ======================================= //
 
-// Main window for the Frogger game.
 public class frogger extends JFrame implements KeyListener {
-    int frogX = 200;
-    int frogY = 200;
-    int frogSize = 50;
-    int frogSpeed = 5;
-    int frogSpeedBoost = 40;
-    int frogSpeedBoostCooldown = 500;
-    int expandDistance = 10;
-    long lastFrogSpeedBoostTime = 0;
-    
 
+    // ------------------------------ START OF VARIABLES ------------------------------ //
+
+    // Window
+    final String gameTitle = "Frogger";
+    final int frameDelay = 16;
+    final int expandDistance = 10;
+    final Dimension screenSize = GraphicsEnvironment.getLocalGraphicsEnvironment().getMaximumWindowBounds().getSize();
+    final Color backgroundColor = Color.BLACK;
+
+    // Player (the frog)
+    final int playerSize = 50;
+    final int playerSpeed = 5;
+    final int playerStartGap = playerSize / 2;
+    final Color playerColor = Color.GREEN;
+    int playerX = 0;
+    int playerY = 0;
+
+    // Boost
+    final int boostSpeed = 40;
+    final int boostCooldown = 500;
+    long lastBoostTime = 0;
+
+    // Roads
+    final int roadHeight = playerSize * 3;
+    final int roadGap = playerSize;
+    final Color roadColor = Color.DARK_GRAY;
+    int roadX = 0;
+    int roadWidth = 0;
+    int roadOneY = 0;
+    int roadTwoY = 0;
+
+    // Road Lines
+    final int dashLength = 30;
+    final int dashGap = 30;
+    final int dashThickness = 4;
+    final Color dashColor = Color.WHITE;
+
+    // Controls
     boolean movingUp = false;
     boolean movingLeft = false;
     boolean movingDown = false;
     boolean movingRight = false;
     boolean spaceBarDown = false;
 
-    Dimension screenSize = Toolkit.getDefaultToolkit().getScreenSize();
-    Timer timer;
+    // Game Loop
+    Timer gameTimer;
 
+    // ------------------------------- END OF VARIABLES ------------------------------- //
+
+
+    // ------------------------------------ SETUP ------------------------------------- //
     public frogger() {
-        setTitle("Frogger");
+        setTitle(gameTitle);
         setSize(screenSize.width, screenSize.height);
+        setLocation(0, 0);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setLocationRelativeTo(null);
-        getContentPane().setBackground(Color.BLACK);
-        addKeyListener(this);
+        getContentPane().setBackground(backgroundColor);
         setFocusable(true);
+        addKeyListener(this);
 
-        timer = new Timer(16, new ActionListener() {
-            public void actionPerformed(ActionEvent event) {
-                moveFrog();
-                repaint();
-            }
+        gameTimer = new Timer(frameDelay, event -> {
+            movePlayer(playerSpeed);
+            repaint();
         });
-        timer.start();
+        gameTimer.start();
     }
 
+    public void placePlayerAtStart() {
+        Insets borders = getInsets();
+        playerX = borders.left + (getWidth() - borders.left - borders.right - playerSize) / 2;
+        playerY = getHeight() - borders.bottom - playerSize - playerStartGap;
+    }
+
+
+    // ---------------------------------- MAIN DRAW ----------------------------------- //
     @Override
     public void paint(Graphics graphics) {
-        super.paint(graphics);
-        graphics.setColor(Color.GREEN);
-        graphics.fillOval(frogX, frogY, frogSize, frogSize);
+        
+        // Draw on an off-screen image first so the screen doesn't flash
+        Image buffer = createImage(getWidth(), getHeight());
+        Graphics bufferGraphics = buffer.getGraphics();
+
+        drawBackground(bufferGraphics);
+        drawRoads(bufferGraphics);
+        drawPlayer(bufferGraphics);
+
+        graphics.drawImage(buffer, 0, 0, null);
+        bufferGraphics.dispose();
     }
 
-    public void moveFrog() {
+    public void drawBackground(Graphics graphics) {
+        graphics.setColor(backgroundColor);
+        graphics.fillRect(0, 0, getWidth(), getHeight());
+    }
+
+
+    // --------------------------------- ROAD SYSTEM ---------------------------------- //
+    public void updateRoads() {
+        Insets borders = getInsets();
+        int centerY = borders.top + (getHeight() - borders.top - borders.bottom) / 2;
+
+        roadX = borders.left;
+        roadWidth = getWidth() - borders.left - borders.right;
+        roadOneY = centerY - roadGap / 2 - roadHeight;
+        roadTwoY = centerY + roadGap / 2;
+    }
+
+    public void drawRoads(Graphics graphics) {
+        updateRoads();
+        drawRoad(graphics, roadOneY);
+        drawRoad(graphics, roadTwoY);
+    }
+
+    public void drawRoad(Graphics graphics, int roadY) {
+        // Road
+        graphics.setColor(roadColor);
+        graphics.fillRect(roadX, roadY, roadWidth, roadHeight);
+
+        // Dashed line in the middle
+        graphics.setColor(dashColor);
+        int dashY = roadY + (roadHeight - dashThickness) / 2;
+        for (int dashX = roadX; dashX < roadX + roadWidth; dashX += dashLength + dashGap) {
+            graphics.fillRect(dashX, dashY, dashLength, dashThickness);
+        }
+    }
+
+
+    // --------------------------------- PLAYER CODE ---------------------------------- //
+    public void drawPlayer(Graphics graphics) {
+        graphics.setColor(playerColor);
+        graphics.fillOval(playerX, playerY, playerSize, playerSize);
+    }
+
+    public void movePlayer(int distance) {
         if (movingUp) {
-            frogY = frogY - frogSpeed;
+            playerY -= distance;
         }
         if (movingLeft) {
-            frogX = frogX - frogSpeed;
+            playerX -= distance;
         }
         if (movingDown) {
-            frogY = frogY + frogSpeed;
+            playerY += distance;
         }
         if (movingRight) {
-            frogX = frogX + frogSpeed;
+            playerX += distance;
         }
-        checkEdges();
+        checkEdges(distance);
     }
 
-    public void boostFrog() {
+    public void boostPlayer() {
         long currentTime = System.currentTimeMillis();
+        boolean isMoving = movingUp || movingLeft || movingDown || movingRight;
 
-        if (currentTime - lastFrogSpeedBoostTime < frogSpeedBoostCooldown) {
+        if (currentTime - lastBoostTime < boostCooldown || !isMoving) {
             return;
         }
 
-        if (movingUp || movingLeft || movingDown || movingRight) {
-            int normalFrogSpeed = frogSpeed;
-            frogSpeed = frogSpeedBoost;
-            moveFrog();
-            frogSpeed = normalFrogSpeed;
-            lastFrogSpeedBoostTime = currentTime;
-            repaint();
-        }
+        movePlayer(boostSpeed);
+        lastBoostTime = currentTime;
+        repaint();
     }
 
-    public void checkEdges() {
+
+    // ---------------------------- WALLS + WINDOW GROWING ---------------------------- //
+    public void checkEdges(int distance) {
         Insets borders = getInsets();
         int leftEdge = borders.left;
-        int rightEdge = getWidth() - borders.right - frogSize;
+        int rightEdge = getWidth() - borders.right - playerSize;
         int topEdge = borders.top;
-        int bottomEdge = getHeight() - borders.bottom - frogSize;
+        int bottomEdge = getHeight() - borders.bottom - playerSize;
+        boolean canGrowWider = getWidth() < screenSize.width;
+        boolean canGrowTaller = getHeight() < screenSize.height;
 
-        // Start growing before the frog reaches each edge.
-        if (movingLeft && frogX <= leftEdge + expandDistance) {
-            if (getWidth() < screenSize.width) {
-                growLeft();
-            } else if (frogX < leftEdge) {
-                frogX = rightEdge;
+        // Left Wall
+        if (movingLeft && playerX <= leftEdge + expandDistance) {
+            if (canGrowWider) {
+                growLeft(distance);
+            } else if (playerX < leftEdge) {
+                playerX = rightEdge;
             }
         }
 
-        if (movingRight && frogX >= rightEdge - expandDistance) {
-            if (getWidth() < screenSize.width) {
-                growRight();
-            } else if (frogX > rightEdge) {
-                frogX = leftEdge;
+        // Right Wall
+        if (movingRight && playerX >= rightEdge - expandDistance) {
+            if (canGrowWider) {
+                growRight(distance);
+            } else if (playerX > rightEdge) {
+                playerX = leftEdge;
             }
         }
 
-        if (movingUp && frogY <= topEdge + expandDistance) {
-            if (getHeight() < screenSize.height) {
-                growUp();
-            } else if (frogY < topEdge) {
-                frogY = bottomEdge;
+        // Top Wall
+        if (movingUp && playerY <= topEdge + expandDistance) {
+            if (canGrowTaller) {
+                growUp(distance);
+            } else if (playerY < topEdge) {
+                playerY = bottomEdge;
             }
         }
 
-        if (movingDown && frogY >= bottomEdge - expandDistance) {
-            if (getHeight() < screenSize.height) {
-                growDown();
-            } else if (frogY > bottomEdge) {
-                frogY = topEdge;
+        // Bottom Wall
+        if (movingDown && playerY >= bottomEdge - expandDistance) {
+            if (canGrowTaller) {
+                growDown(distance);
+            } else if (playerY > bottomEdge) {
+                playerY = topEdge;
             }
         }
     }
 
-    public void growLeft() {
+    public void growLeft(int distance) {
         if (getX() > 0) {
-            setBounds(getX() - frogSpeed, getY(), getWidth() + frogSpeed, getHeight());
-            frogX = frogX + frogSpeed;
+            setBounds(getX() - distance, getY(), getWidth() + distance, getHeight());
+            playerX += distance;
         } else {
-            setSize(getWidth() + frogSpeed, getHeight());
-            int leftEdge = getInsets().left + expandDistance;
-            if (frogX < leftEdge) {
-                frogX = leftEdge;
-            }
+            setSize(getWidth() + distance, getHeight());
+            playerX = Math.max(playerX, getInsets().left + expandDistance);
         }
     }
 
-    public void growRight() {
+    public void growRight(int distance) {
         if (getX() + getWidth() < screenSize.width) {
-            setSize(getWidth() + frogSpeed, getHeight());
+            setSize(getWidth() + distance, getHeight());
         } else {
-            setBounds(getX() - frogSpeed, getY(), getWidth() + frogSpeed, getHeight());
+            setBounds(getX() - distance, getY(), getWidth() + distance, getHeight());
         }
     }
 
-    public void growUp() {
+    public void growUp(int distance) {
         if (getY() > 0) {
-            setBounds(getX(), getY() - frogSpeed, getWidth(), getHeight() + frogSpeed);
-            frogY = frogY + frogSpeed;
+            setBounds(getX(), getY() - distance, getWidth(), getHeight() + distance);
+            playerY += distance;
         } else {
-            setSize(getWidth(), getHeight() + frogSpeed);
-            int topEdge = getInsets().top + expandDistance;
-            if (frogY < topEdge) {
-                frogY = topEdge;
-            }
+            setSize(getWidth(), getHeight() + distance);
+            playerY = Math.max(playerY, getInsets().top + expandDistance);
         }
     }
 
-    public void growDown() {
+    public void growDown(int distance) {
         if (getY() + getHeight() < screenSize.height) {
-            setSize(getWidth(), getHeight() + frogSpeed);
+            setSize(getWidth(), getHeight() + distance);
         } else {
-            setBounds(getX(), getY() - frogSpeed, getWidth(), getHeight() + frogSpeed);
+            setBounds(getX(), getY() - distance, getWidth(), getHeight() + distance);
+        }
+    }
+
+
+    // ------------------------------ KEYBOARD CONTROLS ------------------------------- //
+    public void setDirection(int keyCode, boolean isPressed) {
+        // --- E / Up Arrow ---
+        if (keyCode == KeyEvent.VK_E || keyCode == KeyEvent.VK_UP) {
+            movingUp = isPressed;
+        }
+
+        // --- S / Left Arrow ---
+        if (keyCode == KeyEvent.VK_S || keyCode == KeyEvent.VK_LEFT) {
+            movingLeft = isPressed;
+        }
+
+        // --- D / Down Arrow ---
+        if (keyCode == KeyEvent.VK_D || keyCode == KeyEvent.VK_DOWN) {
+            movingDown = isPressed;
+        }
+
+        // --- F / Right Arrow ---
+        if (keyCode == KeyEvent.VK_F || keyCode == KeyEvent.VK_RIGHT) {
+            movingRight = isPressed;
         }
     }
 
     @Override
     public void keyPressed(KeyEvent event) {
-        if (event.getKeyCode() == KeyEvent.VK_SPACE && !spaceBarDown) {
+        int keyCode = event.getKeyCode();
+
+        // --- Boost (once per press) ---
+        if (keyCode == KeyEvent.VK_SPACE && !spaceBarDown) {
             spaceBarDown = true;
-            boostFrog();
+            boostPlayer();
         }
-        if (event.getKeyCode() == KeyEvent.VK_E || event.getKeyCode() == KeyEvent.VK_UP) {
-            movingUp = true;
-        }
-        if (event.getKeyCode() == KeyEvent.VK_S || event.getKeyCode() == KeyEvent.VK_LEFT) {
-            movingLeft = true;
-        }
-        if (event.getKeyCode() == KeyEvent.VK_D || event.getKeyCode() == KeyEvent.VK_DOWN) {
-            movingDown = true;
-        }
-        if (event.getKeyCode() == KeyEvent.VK_F || event.getKeyCode() == KeyEvent.VK_RIGHT) {
-            movingRight = true;
-        }
+
+        setDirection(keyCode, true);
     }
 
     @Override
     public void keyReleased(KeyEvent event) {
-        if (event.getKeyCode() == KeyEvent.VK_SPACE) {
+        int keyCode = event.getKeyCode();
+
+        if (keyCode == KeyEvent.VK_SPACE) {
             spaceBarDown = false;
         }
-        if (event.getKeyCode() == KeyEvent.VK_E || event.getKeyCode() == KeyEvent.VK_UP) {
-            movingUp = false;
-        }
-        if (event.getKeyCode() == KeyEvent.VK_S || event.getKeyCode() == KeyEvent.VK_LEFT) {
-            movingLeft = false;
-        }
-        if (event.getKeyCode() == KeyEvent.VK_D || event.getKeyCode() == KeyEvent.VK_DOWN) {
-            movingDown = false;
-        }
-        if (event.getKeyCode() == KeyEvent.VK_F || event.getKeyCode() == KeyEvent.VK_RIGHT) {
-            movingRight = false;
-        }
+
+        setDirection(keyCode, false);
     }
 
     @Override
     public void keyTyped(KeyEvent event) {
     }
 
+
+    // -------------------------------- START THE GAME -------------------------------- //
     public static void main(String[] args) {
         frogger gameWindow = new frogger();
         gameWindow.setVisible(true);
+        gameWindow.placePlayerAtStart();
     }
 }
+
+// --------------------------------- THE END OF CODE ---------------------------------- //
