@@ -3,7 +3,10 @@
   "terminal.integrated.env.windows": {
     "Path": "${env:JAVA_HOME}\\bin;${env:Path}"
   },
+  "java.project.referencedLibraries": [
+    "frogger-game/lib/*.jar"
+  ],
   "code-runner.executorMap": {
-    "java": "cd /d \"$dir\" && \"%JAVA_HOME%\\bin\\javac.exe\" \"$fileName\" && \"%JAVA_HOME%\\bin\\java.exe\" \"$fileNameWithoutExt\""
+    "java": "cd /d \"$dir\" && \"%JAVA_HOME%\\bin\\javac.exe\" -cp \"lib\\*\" \"$fileName\" && \"%JAVA_HOME%\\bin\\java.exe\" -cp \".;lib\\*\" \"$fileNameWithoutExt\""
   }
 }
