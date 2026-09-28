@@ -5,14 +5,13 @@ import java.awt.event.*;
 import javax.swing.*;
 
 // ====================================== FROGGER GAME ======================================= //
-public class frogger extends JFrame implements KeyListener, ActionListener {
+public class frogger extends JFrame implements KeyListener, Runnable {
 
 
     // ------------------------------ START OF VARIABLES ------------------------------ //
 
     // Window
     final String gameTitle = "Frogger";
-    final int frameDelay = 16;
     final int expandDistance = 10;
     final Dimension screenSize = GraphicsEnvironment.getLocalGraphicsEnvironment().getMaximumWindowBounds().getSize();
     final Color backgroundColor = Color.BLACK;
@@ -30,6 +29,7 @@ public class frogger extends JFrame implements KeyListener, ActionListener {
     final int boostSpeed = 40;
     final int boostCooldown = 500;
     long lastBoostTime = 0;
+    boolean boostRequested = false;
 
     // Roads
     final int roadHeight = (int) (playerSize * 3 * 1.25);
@@ -43,12 +43,13 @@ public class frogger extends JFrame implements KeyListener, ActionListener {
     // Vehicles
     final String imageFolder = "assets/images/";
     final String[] vehicleNames = { "car", "truck", "bus" };
-    final int[] vehicleSpeeds = { 7, 5, 4 };
+    final int[] vehicleSpeeds = { 420, 300, 240 }; // pixels per second
     final int vehiclePadding = 5;
     final int vehicleHeight = roadHeight - vehiclePadding * 2;
-    BufferedImage[] vehicleLeftImages = new BufferedImage[vehicleNames.length];
-    BufferedImage[] vehicleRightImages = new BufferedImage[vehicleNames.length];
-    java.util.ArrayList<Vehicle> vehicles = new java.util.ArrayList<>();
+    final int maxVehicles = 10;
+    Vehicle[] vehicles = new Vehicle[maxVehicles];
+    Vehicle[] leftVehicles = new Vehicle[vehicleNames.length];
+    Vehicle[] rightVehicles = new Vehicle[vehicleNames.length];
 
     // Spawning
     final int spawnDelay = 10000;
@@ -59,6 +60,12 @@ public class frogger extends JFrame implements KeyListener, ActionListener {
     // Collision
     final int minVisibleAlpha = 128;
 
+    // Debug Mode
+    final boolean DEBUG_MODE = true;
+    final Color hitboxColor = new Color(255, 0, 0, 120);
+    final Color boxOutlineColor = Color.YELLOW;
+    boolean debugMode = false;
+
     // Controls
     boolean movingUp = false;
     boolean movingLeft = false;
@@ -67,7 +74,18 @@ public class frogger extends JFrame implements KeyListener, ActionListener {
     boolean spaceBarDown = false;
 
     // Game Loop
-    Timer gameTimer;
+    final int framesPerSecond = 60;
+    final long nanosPerFrame = 1000000000 / framesPerSecond;
+    Thread gameThread;
+    long lastFrameTime = 0;
+
+    // FPS Counter
+    final Font fpsFont = new Font("Arial", Font.BOLD, 20);
+    final Color fpsColor = Color.GREEN;
+    final int fpsMargin = 10;
+    int framesThisSecond = 0;
+    int currentFps = 0;
+    long fpsTimer = 0;
 
     // ------------------------------- END OF VARIABLES ------------------------------- //
 
@@ -81,19 +99,22 @@ public class frogger extends JFrame implements KeyListener, ActionListener {
         getContentPane().setBackground(backgroundColor);
         setFocusable(true);
         addKeyListener(this);
-        loadVehicleImages();
-
-        gameTimer = new Timer(frameDelay, this);
+        setIgnoreRepaint(true);
+        loadVehicles();
     }
 
     public void startGame() {
         long currentTime = System.currentTimeMillis();
 
+        createBufferStrategy(2);
         updateRoads();
         placePlayerAtStart();
         nextRoadOneSpawn = currentTime;
         nextRoadTwoSpawn = currentTime + roadTwoSpawnOffset;
-        gameTimer.start();
+        lastFrameTime = System.nanoTime();
+
+        gameThread = new Thread(this);
+        gameThread.start();
     }
 
     public void placePlayerAtStart() {
@@ -105,35 +126,98 @@ public class frogger extends JFrame implements KeyListener, ActionListener {
 
     // ---------------------------------- GAME LOOP ----------------------------------- //
     @Override
-    public void actionPerformed(ActionEvent event) {
-        updateRoads();
-        movePlayer(playerSpeed);
-        spawnVehicles();
-        moveVehicles();
-        checkCollisions();
-        repaint();
+    public void run() {
+        while (true) {
+            // How much real time passed since the last frame (in seconds)
+            long frameStart = System.nanoTime();
+            double secondsPassed = (frameStart - lastFrameTime) / 1000000000.0;
+            lastFrameTime = frameStart;
+
+            countFps(frameStart);
+            updateRoads();
+            movePlayer(playerSpeed);
+
+            if (boostRequested) {
+                boostPlayer();
+                boostRequested = false;
+            }
+
+            spawnVehicles();
+            moveVehicles(secondsPassed);
+            checkCollisions();
+            drawGame();
+
+            waitForNextFrame(frameStart);
+        }
+    }
+
+    public void waitForNextFrame(long frameStart) {
+        long nanosLeft = nanosPerFrame - (System.nanoTime() - frameStart);
+
+        // Sleep for most of the time left (sleep is only accurate to about 1-2 ms)
+        if (nanosLeft > 2000000) {
+            try {
+                Thread.sleep((nanosLeft - 2000000) / 1000000);
+            } catch (InterruptedException exception) {
+                return;
+            }
+        }
+
+        // Then wait out the last bit exactly
+        while (System.nanoTime() - frameStart < nanosPerFrame) {
+            Thread.yield();
+        }
     }
 
 
     // ---------------------------------- MAIN DRAW ----------------------------------- //
-    @Override
-    public void paint(Graphics graphics) {
-        // Draw on an off-screen image first so the screen doesn't flash
-        Image buffer = createImage(getWidth(), getHeight());
-        Graphics bufferGraphics = buffer.getGraphics();
+    public void drawGame() {
+        // Draw on a hidden screen first, then show it all at once so nothing flashes
+        BufferStrategy screenBuffer = getBufferStrategy();
+        Graphics graphics = screenBuffer.getDrawGraphics();
 
-        drawBackground(bufferGraphics);
-        drawRoads(bufferGraphics);
-        drawVehicles(bufferGraphics);
-        drawPlayer(bufferGraphics);
+        drawBackground(graphics);
+        drawRoads(graphics);
+        drawVehicles(graphics);
+        drawPlayer(graphics);
 
-        graphics.drawImage(buffer, 0, 0, null);
-        bufferGraphics.dispose();
+        if (debugMode) {
+            drawHitboxes(graphics);
+        }
+
+        drawFps(graphics);
+
+        graphics.dispose();
+        screenBuffer.show();
+        Toolkit.getDefaultToolkit().sync();
     }
 
     public void drawBackground(Graphics graphics) {
         graphics.setColor(backgroundColor);
         graphics.fillRect(0, 0, getWidth(), getHeight());
+    }
+
+
+    // --------------------------------- FPS COUNTER ---------------------------------- //
+    public void countFps(long frameStart) {
+        framesThisSecond++;
+
+        // Once a second has passed, save the count and start over
+        if (frameStart - fpsTimer >= 1000000000) {
+            currentFps = framesThisSecond;
+            framesThisSecond = 0;
+            fpsTimer = frameStart;
+        }
+    }
+
+    public void drawFps(Graphics graphics) {
+        Insets borders = getInsets();
+        int textX = borders.left + fpsMargin;
+        int textY = borders.top + fpsMargin + fpsFont.getSize();
+
+        graphics.setFont(fpsFont);
+        graphics.setColor(fpsColor);
+        graphics.drawString("FPS: " + currentFps + "/" + framesPerSecond, textX, textY);
     }
 
 
@@ -160,11 +244,17 @@ public class frogger extends JFrame implements KeyListener, ActionListener {
 
 
     // -------------------------------- VEHICLE SYSTEM -------------------------------- //
-    public void loadVehicleImages() {
+    public void loadVehicles() {
+        // Build every vehicle once so spawning later is instant
         for (int type = 0; type < vehicleNames.length; type++) {
-            vehicleLeftImages[type] = loadVehicleImage(vehicleNames[type] + "_left.png");
-            vehicleRightImages[type] = loadVehicleImage(vehicleNames[type] + "_right.png");
+            leftVehicles[type] = loadVehicle(vehicleNames[type] + "_left.png");
+            rightVehicles[type] = loadVehicle(vehicleNames[type] + "_right.png");
         }
+    }
+
+    public Vehicle loadVehicle(String fileName) {
+        BufferedImage image = loadVehicleImage(fileName);
+        return new Vehicle(image, makeHitboxImage(image));
     }
 
     public BufferedImage loadVehicleImage(String fileName) {
@@ -198,35 +288,60 @@ public class frogger extends JFrame implements KeyListener, ActionListener {
 
     public void spawnVehicle(int roadY, boolean isMovingRight) {
         int type = (int) (Math.random() * vehicleNames.length);
-        int vehicleY = roadY + vehiclePadding;
+        Vehicle vehicle;
 
         if (isMovingRight) {
-            BufferedImage image = vehicleRightImages[type];
-            vehicles.add(new Vehicle(image, roadX - image.getWidth(), vehicleY, vehicleSpeeds[type]));
+            vehicle = new Vehicle(rightVehicles[type].image, rightVehicles[type].hitbox);
+            vehicle.x = roadX - vehicle.image.getWidth();
+            vehicle.speed = vehicleSpeeds[type];
         } else {
-            BufferedImage image = vehicleLeftImages[type];
-            vehicles.add(new Vehicle(image, roadX + roadWidth, vehicleY, -vehicleSpeeds[type]));
+            vehicle = new Vehicle(leftVehicles[type].image, leftVehicles[type].hitbox);
+            vehicle.x = roadX + roadWidth;
+            vehicle.speed = -vehicleSpeeds[type];
+        }
+
+        vehicle.exactX = vehicle.x;
+        vehicle.y = roadY + vehiclePadding;
+        addVehicle(vehicle);
+    }
+
+    public void addVehicle(Vehicle vehicle) {
+        // Put the vehicle in the first empty slot
+        for (int index = 0; index < vehicles.length; index++) {
+            if (vehicles[index] == null) {
+                vehicles[index] = vehicle;
+                return;
+            }
         }
     }
 
-    public void moveVehicles() {
-        // Go backwards so removing a vehicle doesn't skip the next one
-        for (int index = vehicles.size() - 1; index >= 0; index--) {
-            Vehicle vehicle = vehicles.get(index);
-            vehicle.x += vehicle.speed;
+    public void moveVehicles(double secondsPassed) {
+        for (int index = 0; index < vehicles.length; index++) {
+            Vehicle vehicle = vehicles[index];
+
+            if (vehicle == null) {
+                continue;
+            }
+
+            // Move by time (not by frame) and keep the fractions of a pixel
+            vehicle.exactX += vehicle.speed * secondsPassed;
+            vehicle.x = (int) Math.round(vehicle.exactX);
 
             boolean isPastRightEdge = vehicle.x > roadX + roadWidth;
             boolean isPastLeftEdge = vehicle.x + vehicle.image.getWidth() < roadX;
 
+            // Free up the slot once the vehicle drives off the screen
             if (isPastRightEdge || isPastLeftEdge) {
-                vehicles.remove(index);
+                vehicles[index] = null;
             }
         }
     }
 
     public void drawVehicles(Graphics graphics) {
         for (Vehicle vehicle : vehicles) {
-            graphics.drawImage(vehicle.image, vehicle.x, vehicle.y, null);
+            if (vehicle != null) {
+                graphics.drawImage(vehicle.image, vehicle.x, vehicle.y, null);
+            }
         }
     }
 
@@ -234,7 +349,7 @@ public class frogger extends JFrame implements KeyListener, ActionListener {
     // ------------------------------- COLLISION SYSTEM ------------------------------- //
     public void checkCollisions() {
         for (Vehicle vehicle : vehicles) {
-            if (isPlayerHitting(vehicle)) {
+            if (vehicle != null && isPlayerHitting(vehicle)) {
                 placePlayerAtStart();
                 return;
             }
@@ -287,6 +402,44 @@ public class frogger extends JFrame implements KeyListener, ActionListener {
     }
 
 
+    // ---------------------------------- DEBUG MODE ---------------------------------- //
+    public BufferedImage makeHitboxImage(BufferedImage vehicleImage) {
+        int width = vehicleImage.getWidth();
+        int height = vehicleImage.getHeight();
+        BufferedImage hitbox = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+
+        // Paint every visible vehicle pixel in the hitbox color
+        for (int imageY = 0; imageY < height; imageY++) {
+            for (int imageX = 0; imageX < width; imageX++) {
+                Color pixelColor = new Color(vehicleImage.getRGB(imageX, imageY), true);
+
+                if (pixelColor.getAlpha() >= minVisibleAlpha) {
+                    hitbox.setRGB(imageX, imageY, hitboxColor.getRGB());
+                }
+            }
+        }
+
+        return hitbox;
+    }
+
+    public void drawHitboxes(Graphics graphics) {
+        // Vehicles: box for the quick check, red pixels for the real hitbox
+        for (Vehicle vehicle : vehicles) {
+            if (vehicle != null) {
+                graphics.setColor(boxOutlineColor);
+                graphics.drawRect(vehicle.x, vehicle.y, vehicle.image.getWidth(), vehicleHeight);
+                graphics.drawImage(vehicle.hitbox, vehicle.x, vehicle.y, null);
+            }
+        }
+
+        // Player: box for the quick check, red circle for the real hitbox
+        graphics.setColor(boxOutlineColor);
+        graphics.drawRect(playerX, playerY, playerSize, playerSize);
+        graphics.setColor(hitboxColor);
+        graphics.fillOval(playerX, playerY, playerSize, playerSize);
+    }
+
+
     // --------------------------------- PLAYER CODE ---------------------------------- //
     public void drawPlayer(Graphics graphics) {
         graphics.setColor(playerColor);
@@ -319,7 +472,6 @@ public class frogger extends JFrame implements KeyListener, ActionListener {
 
         movePlayer(boostSpeed);
         lastBoostTime = currentTime;
-        repaint();
     }
 
 
@@ -434,10 +586,16 @@ public class frogger extends JFrame implements KeyListener, ActionListener {
     public void keyPressed(KeyEvent event) {
         int keyCode = event.getKeyCode();
 
+        // --- Shift + D: Debug Mode (only works when DEBUG_MODE is true) ---
+        if (DEBUG_MODE && keyCode == KeyEvent.VK_D && event.isShiftDown()) {
+            debugMode = !debugMode;
+            return;
+        }
+
         // --- Boost (once per press) ---
         if (keyCode == KeyEvent.VK_SPACE && !spaceBarDown) {
             spaceBarDown = true;
-            boostPlayer();
+            boostRequested = true;
         }
 
         setDirection(keyCode, true);
@@ -470,15 +628,15 @@ public class frogger extends JFrame implements KeyListener, ActionListener {
     // -------------------------------- VEHICLE CLASS --------------------------------- //
     class Vehicle {
         BufferedImage image;
-        int x;
-        int y;
-        int speed;
+        BufferedImage hitbox;
+        double exactX = 0;
+        int x = 0;
+        int y = 0;
+        int speed = 0;
 
-        Vehicle(BufferedImage image, int x, int y, int speed) {
+        Vehicle(BufferedImage image, BufferedImage hitbox) {
             this.image = image;
-            this.x = x;
-            this.y = y;
-            this.speed = speed;
+            this.hitbox = hitbox;
         }
     }
 }
