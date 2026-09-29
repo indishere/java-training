@@ -7,7 +7,6 @@ public class frogger extends PApplet {
 
 
     // ------------------------------ START OF VARIABLES ------------------------------ //
-
     // Colors are hex codes: 0xAARRGGBB (AA is how solid it is, FF = fully solid)
 
     // Window
@@ -44,16 +43,19 @@ public class frogger extends PApplet {
     int riverY = 0;
 
     // Logs
-    final int logPadding = 5;
-    final int logHeight = riverHeight - logPadding * 2;
-    final int minLogLength = 150;
-    final int maxLogLength = 400;
-    final int logSpeed = 3; // pixels per frame
+    final String[] logNames = { "birch_log", "mossy_log", "oak_log", "short_log" };
+    final int maxLogHeight = (int) (riverHeight * 0.75);
+    final int minLogHeight = maxLogHeight * 3 / 4;
+    final int minLogSpeed = 2; // pixels per frame
+    final int maxLogSpeed = 4; // pixels per frame
     final int logSpawnDelay = 3000;
-    final int logColor = 0xFF8B4513; // brown
+    final int logGap = playerSize * 2; // closest a log can get to the log in front of it
     final int maxLogs = 10;
     Log[] logs = new Log[maxLogs];
+    PImage[] logImages = new PImage[logNames.length];
+    Log lastLog = null;
     int nextLogSpawn = 0;
+    int nextLogSpeed = 0;
 
     // Vehicles
     final String imageFolder = "assets/images/";
@@ -95,7 +97,7 @@ public class frogger extends PApplet {
     PFont fpsFont;
 
     // Loading
-    boolean vehiclesLoaded = false;
+    boolean imagesLoaded = false;
 
     // ------------------------------- END OF VARIABLES ------------------------------- //
 
@@ -104,8 +106,8 @@ public class frogger extends PApplet {
     public void settings() {
         size(windowWidth, windowHeight, P2D);
 
-        // Load the vehicle images while the window is still opening
-        thread("loadVehicles");
+        // Load the images while the window is still opening
+        thread("loadImages");
     }
 
     public void setup() {
@@ -117,14 +119,21 @@ public class frogger extends PApplet {
         placeLanes();
         placePlayerAtStart();
 
-        // Wait in case the vehicle images are still loading
-        while (!vehiclesLoaded) {
+        // Wait in case the images are still loading
+        while (!imagesLoaded) {
             delay(10);
         }
 
         nextRoadOneSpawn = millis();
         nextRoadTwoSpawn = millis() + roadTwoSpawnOffset;
         nextLogSpawn = millis();
+        nextLogSpeed = (int) random(minLogSpeed, maxLogSpeed + 1);
+    }
+
+    public void loadImages() {
+        loadVehicles();
+        loadLogs();
+        imagesLoaded = true;
     }
 
     public void placePlayerAtStart() {
@@ -205,17 +214,41 @@ public class frogger extends PApplet {
         rect(0, riverY, width, riverHeight);
     }
 
+    public void loadLogs() {
+        for (int type = 0; type < logNames.length; type++) {
+            logImages[type] = loadImage(imageFolder + "logs/" + logNames[type] + ".png");
+        }
+    }
+
     public void spawnLogs() {
         // Logs float in from the left edge and drift to the right
-        if (millis() >= nextLogSpawn) {
+        if (millis() >= nextLogSpawn && hasRoomForLog(nextLogSpeed)) {
+            int type = (int) random(logNames.length);
+            int logHeight = (int) random(minLogHeight, maxLogHeight + 1);
+
             Log log = new Log();
-            log.length = (int) random(minLogLength, maxLogLength);
-            log.x = -log.length;
-            log.y = riverY + logPadding;
+            log.image = resizeSharp(logImages[type], logHeight);
+            log.speed = nextLogSpeed;
+            log.x = -log.image.width;
+            log.y = riverY + (riverHeight - logHeight) / 2; // centered in the river
 
             addLog(log);
-            nextLogSpawn += logSpawnDelay;
+            lastLog = log;
+            nextLogSpawn = millis() + logSpawnDelay;
+            nextLogSpeed = (int) random(minLogSpeed, maxLogSpeed + 1);
         }
+    }
+
+    public boolean hasRoomForLog(int speed) {
+        if (lastLog == null || lastLog.x > width) {
+            return true;
+        }
+
+        // How much closer a new log gets to the last log before the last log floats off the screen
+        int framesLeft = (width - lastLog.x) / lastLog.speed;
+        int distanceGained = (speed - lastLog.speed) * framesLeft;
+
+        return lastLog.x - distanceGained >= logGap;
     }
 
     public void addLog(Log log) {
@@ -236,7 +269,7 @@ public class frogger extends PApplet {
                 continue;
             }
 
-            log.x += logSpeed;
+            log.x += log.speed;
 
             // Free up the slot once the log floats off the screen
             if (log.x > width) {
@@ -246,12 +279,9 @@ public class frogger extends PApplet {
     }
 
     public void drawLogs() {
-        noStroke();
-        fill(logColor);
-
         for (Log log : logs) {
             if (log != null) {
-                rect(log.x, log.y, log.length, logHeight);
+                image(log.image, log.x, log.y);
             }
         }
     }
@@ -268,14 +298,19 @@ public class frogger extends PApplet {
 
         // Standing on a log: float along with it
         for (Log log : logs) {
-            if (log != null && playerCenterX >= log.x && playerCenterX < log.x + log.length) {
-                playerX += logSpeed;
+            if (log != null && isOnLog(log, playerCenterX, playerCenterY)) {
+                playerX += log.speed;
                 return;
             }
         }
 
         // No log under the frog: it fell in the water
         placePlayerAtStart();
+    }
+
+    public boolean isOnLog(Log log, int pointX, int pointY) {
+        return pointX >= log.x && pointX < log.x + log.image.width
+                && pointY >= log.y && pointY < log.y + log.image.height;
     }
 
 
@@ -288,7 +323,6 @@ public class frogger extends PApplet {
             rightVehicles[type] = loadVehicle(name + "/" + name + "_right.png");
         }
 
-        vehiclesLoaded = true;
     }
 
     public Vehicle loadVehicle(String fileName) {
@@ -475,7 +509,7 @@ public class frogger extends PApplet {
             if (log != null) {
                 noFill();
                 stroke(boxOutlineColor);
-                rect(log.x, log.y, log.length, logHeight);
+                rect(log.x, log.y, log.image.width, log.image.height);
             }
         }
 
@@ -624,9 +658,10 @@ public class frogger extends PApplet {
 
     // ---------------------------------- LOG CLASS ----------------------------------- //
     class Log {
+        PImage image;
         int x = 0;
         int y = 0;
-        int length = 0;
+        int speed = 0;
     }
 }
 
