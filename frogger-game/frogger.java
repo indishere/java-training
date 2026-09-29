@@ -25,10 +25,16 @@ public class frogger extends PApplet {
     int playerX = 0;
     int playerY = 0;
 
-    // Boost
-    final int boostSpeed = 40;
-    final int boostCooldown = 500;
-    int lastBoostTime = 0;
+    // Jump (water and anything shorter than jumpHeight can't get the frog while it's in the air)
+    final int jumpLength = 240; // pixels the frog flies if you hold a direction the whole jump
+    final int jumpHeight = 60; // how high the frog gets off the ground
+    final int jumpDuration = 500; // milliseconds in the air
+    final int jumpCooldown = 1000;
+    final int jumpFrames = jumpDuration * framesPerSecond / 1000; // 30 frames in the air
+    final int jumpSpeed = jumpLength / jumpFrames; // pixels per frame while in the air
+    final int jumpGrowth = playerSize / 5; // how much bigger the frog looks in the air
+    boolean isJumping = false;
+    int jumpStartTime = -jumpCooldown;
 
     // Roads
     final int roadHeight = (int) (playerSize * 3 * 1.25);
@@ -61,6 +67,7 @@ public class frogger extends PApplet {
     final String imageFolder = "assets/images/";
     final String[] vehicleNames = { "car", "truck", "bus" };
     final int[] vehicleSpeeds = { 7, 5, 4 }; // pixels per frame
+    final int[] vehicleTallness = { 40, 100, 90 }; // how tall each vehicle is off the ground
     final int vehiclePadding = 5;
     final int vehicleHeight = roadHeight - vehiclePadding * 2;
     final int maxVehicles = 10;
@@ -78,7 +85,7 @@ public class frogger extends PApplet {
     final int minVisibleAlpha = 128;
 
     // Debug Mode
-    final boolean DEBUG_MODE = false;
+    final boolean DEBUG_MODE = true;
     final int hitboxColor = 0x78FF0000; // see-through red
     final int boxOutlineColor = 0xFFFFFF00; // yellow
     boolean debugMode = false;
@@ -149,13 +156,25 @@ public class frogger extends PApplet {
     }
 
     public void updateGame() {
-        movePlayer(playerSpeed);
+        updateJump();
+
+        if (isJumping) {
+            movePlayer(jumpSpeed);
+        } else {
+            movePlayer(playerSpeed);
+        }
+
         spawnVehicles();
         moveVehicles();
         spawnLogs();
         moveLogs();
+
         checkCollisions();
-        checkRiver();
+
+        // Water can't get the frog while it's in the air
+        if (!isJumping) {
+            checkRiver();
+        }
     }
 
 
@@ -379,6 +398,7 @@ public class frogger extends PApplet {
         }
 
         vehicle.y = roadY + vehiclePadding;
+        vehicle.tallness = vehicleTallness[type];
         addVehicle(vehicle);
     }
 
@@ -424,7 +444,14 @@ public class frogger extends PApplet {
     // ------------------------------- COLLISION SYSTEM ------------------------------- //
     public void checkCollisions() {
         for (Vehicle vehicle : vehicles) {
-            if (vehicle != null && isPlayerHitting(vehicle)) {
+            if (vehicle == null) {
+                continue;
+            }
+
+            // The frog can only jump over vehicles that are shorter than its jump
+            boolean isJumpingOver = isJumping && jumpHeight > vehicle.tallness;
+
+            if (!isJumpingOver && isPlayerHitting(vehicle)) {
                 placePlayerAtStart();
                 return;
             }
@@ -473,7 +500,12 @@ public class frogger extends PApplet {
         }
 
         int pixelColor = vehicle.image.pixels[imageY * vehicle.image.width + imageX];
-        return alpha(pixelColor) >= minVisibleAlpha;
+        return getAlpha(pixelColor) >= minVisibleAlpha;
+    }
+
+    public int getAlpha(int pixelColor) {
+        // The alpha is the AA part of 0xAARRGGBB, so shift it down and keep only those two digits
+        return (pixelColor >> 24) & 0xFF;
     }
 
 
@@ -484,7 +516,7 @@ public class frogger extends PApplet {
 
         // Paint every visible vehicle pixel in the hitbox color
         for (int index = 0; index < vehicleImage.pixels.length; index++) {
-            if (alpha(vehicleImage.pixels[index]) >= minVisibleAlpha) {
+            if (getAlpha(vehicleImage.pixels[index]) >= minVisibleAlpha) {
                 hitbox.pixels[index] = hitboxColor;
             }
         }
@@ -527,7 +559,14 @@ public class frogger extends PApplet {
     public void drawPlayer() {
         noStroke();
         fill(playerColor);
-        ellipse(playerX, playerY, playerSize, playerSize);
+
+        if (isJumping) {
+            // Draw the frog a bit bigger so it looks like it's in the air
+            int jumpSize = playerSize + jumpGrowth * 2;
+            ellipse(playerX - jumpGrowth, playerY - jumpGrowth, jumpSize, jumpSize);
+        } else {
+            ellipse(playerX, playerY, playerSize, playerSize);
+        }
     }
 
     public void movePlayer(int distance) {
@@ -546,15 +585,20 @@ public class frogger extends PApplet {
         checkEdges();
     }
 
-    public void boostPlayer() {
-        boolean isMoving = movingUp || movingLeft || movingDown || movingRight;
-
-        if (millis() - lastBoostTime < boostCooldown || !isMoving) {
+    public void jumpPlayer() {
+        if (isJumping || millis() - jumpStartTime < jumpCooldown) {
             return;
         }
 
-        movePlayer(boostSpeed);
-        lastBoostTime = millis();
+        isJumping = true;
+        jumpStartTime = millis();
+    }
+
+    public void updateJump() {
+        // Land once the jump time is over
+        if (isJumping && millis() - jumpStartTime >= jumpDuration) {
+            isJumping = false;
+        }
     }
 
 
@@ -615,10 +659,10 @@ public class frogger extends PApplet {
             return;
         }
 
-        // --- Boost (once per press) ---
+        // --- Jump (once per press) ---
         if (key == ' ' && !spaceBarDown) {
             spaceBarDown = true;
-            boostPlayer();
+            jumpPlayer();
         }
 
         setDirection(true);
@@ -648,6 +692,7 @@ public class frogger extends PApplet {
         int x = 0;
         int y = 0;
         int speed = 0;
+        int tallness = 0;
 
         Vehicle(PImage image, PImage hitbox) {
             this.image = image;
