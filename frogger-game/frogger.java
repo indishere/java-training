@@ -8,19 +8,21 @@ public class frogger extends PApplet {
 
     // ------------------------------ START OF VARIABLES ------------------------------ //
 
+    // Colors are hex codes: 0xAARRGGBB (AA is how solid it is, FF = fully solid)
+
     // Window
     final String gameTitle = "Frogger";
     final int windowWidth = 1600;
     final int windowHeight = 900;
     final int framesPerSecond = 60;
-    final int backgroundColor = color(0);
+    final int backgroundColor = 0xFF000000; // black
 
     // Player (the frog)
     final int playerSize = 50;
     final int playerRadius = playerSize / 2;
     final int playerSpeed = 5;
     final int playerStartGap = playerSize / 2;
-    final int playerColor = color(0, 255, 0);
+    final int playerColor = 0xFF00FF00; // green
     int playerX = 0;
     int playerY = 0;
 
@@ -31,10 +33,27 @@ public class frogger extends PApplet {
 
     // Roads
     final int roadHeight = (int) (playerSize * 3 * 1.25);
-    final int roadGap = playerSize;
-    final int roadColor = color(64);
+    final int laneGap = playerSize; // empty space between the roads and the river
+    final int roadColor = 0xFF404040; // dark gray
     int roadOneY = 0;
     int roadTwoY = 0;
+
+    // River
+    final int riverHeight = roadHeight;
+    final int riverColor = 0xFF1E6BD6; // blue
+    int riverY = 0;
+
+    // Logs
+    final int logPadding = 5;
+    final int logHeight = riverHeight - logPadding * 2;
+    final int minLogLength = 150;
+    final int maxLogLength = 400;
+    final int logSpeed = 3; // pixels per frame
+    final int logSpawnDelay = 3000;
+    final int logColor = 0xFF8B4513; // brown
+    final int maxLogs = 10;
+    Log[] logs = new Log[maxLogs];
+    int nextLogSpawn = 0;
 
     // Vehicles
     final String imageFolder = "assets/images/";
@@ -58,8 +77,8 @@ public class frogger extends PApplet {
 
     // Debug Mode
     final boolean DEBUG_MODE = false;
-    final int hitboxColor = color(255, 0, 0, 120);
-    final int boxOutlineColor = color(255, 255, 0);
+    final int hitboxColor = 0x78FF0000; // see-through red
+    final int boxOutlineColor = 0xFFFFFF00; // yellow
     boolean debugMode = false;
 
     // Controls
@@ -71,9 +90,12 @@ public class frogger extends PApplet {
 
     // FPS Counter
     final int fpsTextSize = 20;
-    final int fpsColor = color(0, 255, 0);
+    final int fpsColor = 0xFF00FF00; // green
     final int fpsMargin = 10;
     PFont fpsFont;
+
+    // Loading
+    boolean vehiclesLoaded = false;
 
     // ------------------------------- END OF VARIABLES ------------------------------- //
 
@@ -81,6 +103,9 @@ public class frogger extends PApplet {
     // ------------------------------------ SETUP ------------------------------------- //
     public void settings() {
         size(windowWidth, windowHeight, P2D);
+
+        // Load the vehicle images while the window is still opening
+        thread("loadVehicles");
     }
 
     public void setup() {
@@ -89,12 +114,17 @@ public class frogger extends PApplet {
         ellipseMode(CORNER);
         fpsFont = createFont("Arial Bold", fpsTextSize);
 
-        loadVehicles();
-        placeRoads();
+        placeLanes();
         placePlayerAtStart();
+
+        // Wait in case the vehicle images are still loading
+        while (!vehiclesLoaded) {
+            delay(10);
+        }
 
         nextRoadOneSpawn = millis();
         nextRoadTwoSpawn = millis() + roadTwoSpawnOffset;
+        nextLogSpawn = millis();
     }
 
     public void placePlayerAtStart() {
@@ -113,7 +143,10 @@ public class frogger extends PApplet {
         movePlayer(playerSpeed);
         spawnVehicles();
         moveVehicles();
+        spawnLogs();
+        moveLogs();
         checkCollisions();
+        checkRiver();
     }
 
 
@@ -121,6 +154,8 @@ public class frogger extends PApplet {
     public void drawGame() {
         background(backgroundColor);
         drawRoads();
+        drawRiver();
+        drawLogs();
         drawVehicles();
         drawPlayer();
 
@@ -142,11 +177,13 @@ public class frogger extends PApplet {
 
 
     // --------------------------------- ROAD SYSTEM ---------------------------------- //
-    public void placeRoads() {
-        int centerY = height / 2;
+    public void placeLanes() {
+        // From top to bottom: Road One, gap, River, gap, Road Two
+        int totalHeight = roadHeight + laneGap + riverHeight + laneGap + roadHeight;
 
-        roadOneY = centerY - roadGap / 2 - roadHeight;
-        roadTwoY = centerY + roadGap / 2;
+        roadOneY = (height - totalHeight) / 2;
+        riverY = roadOneY + roadHeight + laneGap;
+        roadTwoY = riverY + riverHeight + laneGap;
     }
 
     public void drawRoads() {
@@ -161,13 +198,97 @@ public class frogger extends PApplet {
     }
 
 
+    // --------------------------------- RIVER SYSTEM --------------------------------- //
+    public void drawRiver() {
+        noStroke();
+        fill(riverColor);
+        rect(0, riverY, width, riverHeight);
+    }
+
+    public void spawnLogs() {
+        // Logs float in from the left edge and drift to the right
+        if (millis() >= nextLogSpawn) {
+            Log log = new Log();
+            log.length = (int) random(minLogLength, maxLogLength);
+            log.x = -log.length;
+            log.y = riverY + logPadding;
+
+            addLog(log);
+            nextLogSpawn += logSpawnDelay;
+        }
+    }
+
+    public void addLog(Log log) {
+        // Put the log in the first empty slot
+        for (int index = 0; index < logs.length; index++) {
+            if (logs[index] == null) {
+                logs[index] = log;
+                return;
+            }
+        }
+    }
+
+    public void moveLogs() {
+        for (int index = 0; index < logs.length; index++) {
+            Log log = logs[index];
+
+            if (log == null) {
+                continue;
+            }
+
+            log.x += logSpeed;
+
+            // Free up the slot once the log floats off the screen
+            if (log.x > width) {
+                logs[index] = null;
+            }
+        }
+    }
+
+    public void drawLogs() {
+        noStroke();
+        fill(logColor);
+
+        for (Log log : logs) {
+            if (log != null) {
+                rect(log.x, log.y, log.length, logHeight);
+            }
+        }
+    }
+
+    public void checkRiver() {
+        int playerCenterX = playerX + playerRadius;
+        int playerCenterY = playerY + playerRadius;
+
+        boolean isInRiver = playerCenterY >= riverY && playerCenterY < riverY + riverHeight;
+
+        if (!isInRiver) {
+            return;
+        }
+
+        // Standing on a log: float along with it
+        for (Log log : logs) {
+            if (log != null && playerCenterX >= log.x && playerCenterX < log.x + log.length) {
+                playerX += logSpeed;
+                return;
+            }
+        }
+
+        // No log under the frog: it fell in the water
+        placePlayerAtStart();
+    }
+
+
     // -------------------------------- VEHICLE SYSTEM -------------------------------- //
     public void loadVehicles() {
         // Build every vehicle once so spawning later is instant
         for (int type = 0; type < vehicleNames.length; type++) {
-            leftVehicles[type] = loadVehicle(vehicleNames[type] + "_left.png");
-            rightVehicles[type] = loadVehicle(vehicleNames[type] + "_right.png");
+            String name = vehicleNames[type];
+            leftVehicles[type] = loadVehicle(name + "/" + name + "_left.png");
+            rightVehicles[type] = loadVehicle(name + "/" + name + "_right.png");
         }
+
+        vehiclesLoaded = true;
     }
 
     public Vehicle loadVehicle(String fileName) {
@@ -349,6 +470,15 @@ public class frogger extends PApplet {
             }
         }
 
+        // Logs: the frog is safe while its center is inside one of these boxes
+        for (Log log : logs) {
+            if (log != null) {
+                noFill();
+                stroke(boxOutlineColor);
+                rect(log.x, log.y, log.length, logHeight);
+            }
+        }
+
         // Player: box for the quick check, red circle for the real hitbox
         noFill();
         stroke(boxOutlineColor);
@@ -471,6 +601,8 @@ public class frogger extends PApplet {
 
     // -------------------------------- START THE GAME -------------------------------- //
     public static void main(String[] args) {
+        // Skip looking for phone-style OpenGL (OpenGL ES) so the window opens faster
+        System.setProperty("jogl.disable.opengles", "true");
         PApplet.main("frogger");
     }
 
@@ -487,6 +619,14 @@ public class frogger extends PApplet {
             this.image = image;
             this.hitbox = hitbox;
         }
+    }
+
+
+    // ---------------------------------- LOG CLASS ----------------------------------- //
+    class Log {
+        int x = 0;
+        int y = 0;
+        int length = 0;
     }
 }
 
