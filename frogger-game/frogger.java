@@ -10,7 +10,7 @@ public class frogger extends PApplet {
     // Colors are hex codes: 0xAARRGGBB (AA is how solid it is, FF = fully solid)
 
     // Window
-    final String gameTitle = "Frogger";
+    final String gameTitle = "Frogger DA Mogger";
     final int windowWidth = 1600;
     final int windowHeight = 900;
     final int framesPerSecond = 60;
