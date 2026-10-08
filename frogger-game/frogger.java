@@ -18,8 +18,10 @@ public class frogger extends PApplet {
 
     // Player (Steve)
     final int playerSize = 75; // the size unit the roads and gaps are built from
-    final int playerHeight = 175; // how tall Steve is (his width comes from the picture)
-    final int playerSpeed = 2;
+    final int playerHeight = 135; // how tall Steve is (his width comes from the picture)
+    final int playerSpeed = 3; // pixels Steve moves with each step
+    final int stepDelay = 0; // milliseconds between steps while a key is held down
+    int lastStepTime = 0;
     final int playerStartGap = playerSize / 2;
     PImage playerImage;
     PImage playerHitbox;
@@ -40,7 +42,7 @@ public class frogger extends PApplet {
     int jumpStartTime = -jumpCooldown;
 
     // Roads
-    final int roadHeight = (int) (playerSize * 3 * 1.25);
+    final int roadHeight = 150;
     final int laneGap = playerHeight; // empty space between the roads and the river (fits Steve)
     final int roadColor = 0xFF404040; // dark gray
     int roadOneY = 0;
@@ -111,7 +113,7 @@ public class frogger extends PApplet {
     final int fpsTextSize = 20;
     final int fpsColor = 0xFF00FF00; // green
     final int fpsMargin = 10;
-    PFont fpsFont;
+    PFont fpsFont = null;
 
     // Loading
     boolean imagesLoaded = false;
@@ -131,7 +133,9 @@ public class frogger extends PApplet {
     public void setup() {
         surface.setTitle(gameTitle);
         frameRate(framesPerSecond);
-        fpsFont = createFont("Arial Bold", fpsTextSize);
+
+        // Make the font in the background so the game can start without waiting for it
+        thread("loadFont");
 
         placeLanes();
 
@@ -173,7 +177,7 @@ public class frogger extends PApplet {
         if (isJumping) {
             updateJump();
         } else {
-            movePlayer(playerSpeed);
+            keepWalking();
         }
 
         spawnVehicles();
@@ -208,7 +212,16 @@ public class frogger extends PApplet {
 
 
     // --------------------------------- FPS COUNTER ---------------------------------- //
+    public void loadFont() {
+        fpsFont = createFont("Arial Bold", fpsTextSize);
+    }
+
     public void drawFps() {
+        // The font is still loading for the first few frames
+        if (fpsFont == null) {
+            return;
+        }
+
         textFont(fpsFont);
         textAlign(LEFT, TOP);
         fill(fpsColor);
@@ -273,6 +286,11 @@ public class frogger extends PApplet {
     public boolean hasRoomForLog(int speed) {
         if (lastLog == null || lastLog.x > width) {
             return true;
+        }
+
+        // The last log is still floating in, so there's no room yet
+        if (lastLog.x < logGap) {
+            return false;
         }
 
         // How much closer a new log gets to the last log before the last log floats off the screen
@@ -434,8 +452,14 @@ public class frogger extends PApplet {
             return true;
         }
 
-        // How much closer the new vehicle gets to the one ahead before that one drives off the screen
         int distanceAhead = getDistanceFromEdge(vehicleAhead);
+
+        // The vehicle ahead is still driving in, so there's no room yet
+        if (distanceAhead < vehicleGap) {
+            return false;
+        }
+
+        // How much closer the new vehicle gets to the one ahead before that one drives off the screen
         int speedAhead = abs(vehicleAhead.speed);
         int framesLeft = (width - distanceAhead) / speedAhead;
         int distanceGained = (abs(newVehicle.speed) - speedAhead) * framesLeft;
@@ -609,6 +633,28 @@ public class frogger extends PApplet {
         image(playerImage, drawX, drawY, drawWidth, drawHeight);
     }
 
+    public void stepPlayer(int stepX, int stepY) {
+        // No stepping in mid-air, the jump already moves Steve
+        if (isJumping) {
+            return;
+        }
+
+        playerX += stepX;
+        playerY += stepY;
+        checkEdges();
+        lastStepTime = millis();
+    }
+
+    public void keepWalking() {
+        boolean isHoldingKey = movingUp || movingLeft || movingDown || movingRight;
+
+        // Holding a key down takes another step every stepDelay
+        if (isHoldingKey && millis() - lastStepTime >= stepDelay) {
+            movePlayer(playerSpeed);
+            lastStepTime = millis();
+        }
+    }
+
     public void movePlayer(int distance) {
         if (movingUp) {
             playerY -= distance;
@@ -694,23 +740,37 @@ public class frogger extends PApplet {
 
     // ------------------------------ KEYBOARD CONTROLS ------------------------------- //
     public void setDirection(boolean isPressed) {
+        // Take a step right away when a key goes down (keepWalking handles holding it)
+
         // --- E / Up Arrow ---
         if (keyCode == 'E' || keyCode == UP) {
+            if (isPressed && !movingUp) {
+                stepPlayer(0, -playerSpeed);
+            }
             movingUp = isPressed;
         }
 
         // --- S / Left Arrow ---
         if (keyCode == 'S' || keyCode == LEFT) {
+            if (isPressed && !movingLeft) {
+                stepPlayer(-playerSpeed, 0);
+            }
             movingLeft = isPressed;
         }
 
         // --- D / Down Arrow ---
         if (keyCode == 'D' || keyCode == DOWN) {
+            if (isPressed && !movingDown) {
+                stepPlayer(0, playerSpeed);
+            }
             movingDown = isPressed;
         }
 
         // --- F / Right Arrow ---
         if (keyCode == 'F' || keyCode == RIGHT) {
+            if (isPressed && !movingRight) {
+                stepPlayer(playerSpeed, 0);
+            }
             movingRight = isPressed;
         }
     }
@@ -742,8 +802,9 @@ public class frogger extends PApplet {
 
     // -------------------------------- START THE GAME -------------------------------- //
     public static void main(String[] args) {
-        // Skip looking for phone-style OpenGL (OpenGL ES) so the window opens faster
-        System.setProperty("jogl.disable.opengles", "true");
+        // Skip some of the graphics driver checks so the window opens faster
+        System.setProperty("jogl.disable.opengles", "true"); // phone-style OpenGL
+        System.setProperty("jogl.disable.openglarbcontext", "true"); // ~1 second of extra driver probing
         PApplet.main("frogger");
     }
 
