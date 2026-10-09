@@ -1,3 +1,5 @@
+// He's using NetBeans for some reason...
+
 //frogger with collision added. Friday sept 25th.
 import java.awt.Color;
 import java.awt.Graphics;
