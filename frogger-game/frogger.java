@@ -16,13 +16,19 @@ public class frogger extends PApplet {
     final int framesPerSecond = 60;
     final int backgroundColor = 0xFF000000; // black
 
+    // Screens
+    boolean loadingScreen = true;
+    boolean levelScreen = false;
+    boolean gameScreen = false;
+    boolean gameOverScreen = false;
+
     // Player (Steve)
     final int playerSize = 75; // the size unit the roads and gaps are built from
     final int playerHeight = 135; // how tall Steve is (his width comes from the picture)
     final int playerSpeed = 3; // pixels Steve moves with each step
     final int stepDelay = 0; // milliseconds between steps while a key is held down
-    int lastStepTime = 0;
     final int playerStartGap = playerSize / 2;
+    int lastStepTime = 0;
     PImage playerImage;
     PImage playerHitbox;
     int playerX = 0;
