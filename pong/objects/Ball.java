@@ -29,6 +29,18 @@ public class Ball {
         g.fillOval(x, y, size, size);
     }
 
+    // Bounce off the edges of a width x height screen
+    public void bounceOffWalls(int width, int height) {
+        // left or right wall
+        if (x <= 0 || x + size >= width) {
+            bounceX();
+        }
+        // top or bottom wall
+        if (y <= 0 || y + size >= height) {
+            bounceY();
+        }
+    }
+
     public void bounceX() {
         speedX *= -1;
     }
