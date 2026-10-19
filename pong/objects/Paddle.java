@@ -10,7 +10,7 @@ public class Paddle {
     int width = 15;
     int height = 100;
     int speed = 6;
-    Color color = Color.WHITE;
+    Color color = Color.BLUE;
 
     // Set by the keyboard in Game
     public boolean movingUp = false;
@@ -39,6 +39,12 @@ public class Paddle {
             y = screenHeight - height;
         }
     }
+
+    // Getters: let classes outside "objects" read the paddle
+    public int getX() { return x; }
+    public void setX(int newX) { x = newX; }
+    public int getY() { return y; }
+    public int getHeight() { return height; }
 
     public void draw(Graphics g) {
         g.setColor(color);
