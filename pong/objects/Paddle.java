@@ -9,7 +9,7 @@ public class Paddle {
     int y;
     int width = 15;
     int height = 100;
-    int speed = 6;
+    int speed = 10;
     Color color = Color.BLUE;
 
     // Set by the keyboard in Game
