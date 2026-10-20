@@ -9,9 +9,10 @@ public class Ball {
     double x = 100;
     double y = 100;
     int size = 30;
-    double speedX = 4.5;
-    double speedY = 4.5;
-    double speedUp = 1.10; // 10% faster on every paddle hit
+    public static final int SPEED = 7; // starting speed (grows on every paddle hit)
+    double speedX = SPEED;
+    double speedY = SPEED;
+    double speedUp = 1.05; // 5% faster on every paddle hit
     Color color = Color.RED;
 
     // Constructor
@@ -103,6 +104,7 @@ public class Ball {
     public double getY() { return y; }
     public double getSpeedX() { return speedX; }
     public double getSpeedY() { return speedY; }
+    public double getSpeed() { return Math.abs(speedX); } // the paddles move this fast too
     public int getSize() { return size; }
 
     public void bounceX() {

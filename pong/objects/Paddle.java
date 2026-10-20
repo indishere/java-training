@@ -9,7 +9,6 @@ public class Paddle {
     int y;
     int width = 15;
     int height = 100;
-    int speed = 10;
     Color color = Color.BLUE;
 
     // Set by the keyboard in Game
@@ -23,7 +22,9 @@ public class Paddle {
     }
 
     // Called once per frame by the game loop
-    public void update(int screenHeight) {
+    // speed = the ball's speed, so the paddle speeds up with it
+    public void update(int screenHeight, double ballSpeed) {
+        int speed = (int) Math.round(ballSpeed); // y is a whole number
         if (movingUp) {
             y = y - speed;
         }

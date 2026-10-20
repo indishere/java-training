@@ -110,8 +110,8 @@ public class Game extends JPanel implements KeyListener {
         if (state.equals("playing")) {
             engine.steer(rightPaddle); // the engine moves the right paddle
 
-            leftPaddle.update(height);
-            rightPaddle.update(height);
+            leftPaddle.update(height, ball.getSpeed());
+            rightPaddle.update(height, ball.getSpeed());
             ball.update();
             ball.bounceOffWalls(height);
             ball.bounceOffPaddle(leftPaddle);

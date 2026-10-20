@@ -82,8 +82,9 @@ public class Engine extends Thread {
     // Called every frame by Game: move the paddle towards targetY
     public void steer(Paddle paddle) {
         int paddleMiddle = paddle.getY() + paddle.getHeight() / 2;
-        paddle.movingUp = paddleMiddle > targetY + 6;   // 6 = paddle speed, stops it wobbling
-        paddle.movingDown = paddleMiddle < targetY - 6;
+        double speed = game.ball.getSpeed(); // paddle speed, stops it wobbling
+        paddle.movingUp = paddleMiddle > targetY + speed;
+        paddle.movingDown = paddleMiddle < targetY - speed;
     }
 
     // This is what runs when you call engine.start()
