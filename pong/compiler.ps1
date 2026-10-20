@@ -1,7 +1,11 @@
+// COMPILER
+
+
 param(
     [string]$SourceDir = $PSScriptRoot,
     [string]$OutputDir = $SourceDir
 )
+
 $ErrorActionPreference = 'Stop'
 $buildDir = Join-Path ([IO.Path]::GetTempPath()) ('pong-build-' + [guid]::NewGuid().ToString('N'))
 $sourceCopy = Join-Path $buildDir 'src'
