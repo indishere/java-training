@@ -2,6 +2,8 @@
 import java.awt.*;
 import java.awt.event.*;
 import javax.swing.*;
+
+// OBJECTS
 import objects.Ball;
 import objects.Paddle;
 
