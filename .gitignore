@@ -1,4 +1,5 @@
 *.class
 .env
 pong.exe
-pong.jarpong-cpp.exe
+pong.jar
+pong-cpp.exe
