@@ -1,23 +1,38 @@
-# Pongie native rewrite
+# Pongie native rewrite (Rust)
 
-This is a standalone Windows C++ rewrite of the Java Pong game. It uses the
-Win32 window and GDI APIs directly, limits updates to 60 FPS, sleeps between
-frames, and redraws only the moving objects.
-
-The opponent predicts the ball's landing point locally; this version does not
-use the Java game's optional Cloudflare API integration or require Java.
+A standalone Windows Rust rewrite of the Java Pong game in `../pong`, with the same
+gameplay and the same Cloudflare clef-flash aiming. It calls Windows' window and
+GDI APIs directly, with no crates, limits updates to 60 FPS, and redraws only the
+moving objects. See [OPTIMIZATIONS.md](OPTIMIZATIONS.md) for how it compares to
+the Java `pong.exe`.
 
 ## Build and run
 
-With LLVM-MinGW or MinGW-w64 (`clang++` or `g++`) on `PATH`, run:
+Needs Rust (`cargo`) with a MinGW/LLVM-MinGW Windows target. Then:
 
 ```powershell
 .\build.ps1
-.\pong-cpp.exe
+.\pong-rs.exe
 ```
 
-The build statically links its C++ runtime. It uses Windows' built-in GDI and
-user-interface libraries.
+The exe links its C runtime statically and needs only DLLs that ship with Windows 10+.
+
+For the opponent to aim with clef-flash, put a `.env` next to the exe (or in the
+folder you launch it from), the same file the Java game uses:
+
+```
+CLOUDFLARE_CLEF_API_KEY=...
+CLOUDFLARE_ACCOUNT_ID=...
+```
+
+Without it the opponent still defends; it just doesn't aim.
+
+## Tests
+
+```powershell
+cargo test --release                    # game logic, offline
+cargo test --release -- --include-ignored  # also calls clef-flash using ../pong/.env
+```
 
 ## Controls
 

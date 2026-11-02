@@ -1,0 +1,14 @@
+[package]
+name = "pong-rs"
+version = "0.1.0"
+edition = "2024"
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[[bin]]
+name = "pong-rs"
+path = "main.rs"

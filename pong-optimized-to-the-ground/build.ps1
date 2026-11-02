@@ -1,17 +1,11 @@
 $ErrorActionPreference = 'Stop'
-$compiler = Get-Command clang++.exe -ErrorAction SilentlyContinue
-if (-not $compiler) {
-    $compiler = Get-Command g++.exe -ErrorAction SilentlyContinue
-}
-if (-not $compiler) {
-    throw 'Install LLVM-MinGW or MinGW-w64 and put clang++ or g++ on PATH.'
-}
-
-$output = Join-Path $PSScriptRoot 'pong-cpp.exe'
-& $compiler.Source -std=c++17 -O2 -DNDEBUG -mwindows -static -s `
-    (Join-Path $PSScriptRoot 'pong.cpp') -o $output -lgdi32 -luser32
+# Static CRT so the exe doesn't need libunwind.dll from the toolchain.
+$env:RUSTFLAGS = '-C target-feature=+crt-static'
+cargo build --release --manifest-path (Join-Path $PSScriptRoot 'Cargo.toml')
 if ($LASTEXITCODE -ne 0) {
-    throw 'C++ build failed.'
+    throw 'Rust build failed.'
 }
 
+$output = Join-Path $PSScriptRoot 'pong-rs.exe'
+Copy-Item (Join-Path $PSScriptRoot 'target\release\pong-rs.exe') $output -Force
 Get-Item -LiteralPath $output | Select-Object FullName, Length

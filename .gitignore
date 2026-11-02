@@ -2,4 +2,6 @@
 .env
 pong.exe
 pong.jar
-pong-cpp.exe
+pong-rs.exe
+target/
+breakout.jar
