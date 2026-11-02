@@ -35,7 +35,7 @@ List<String> lines;
 if (-not $engine.Contains($old)) { throw 'Engine.java changed: configuration loader needs review.' }
 [IO.File]::WriteAllText($enginePath, $engine.Replace($old, $replacement))
 $sources = @(Get-ChildItem -LiteralPath $sourceCopy -Filter '*.java' -Recurse | ForEach-Object FullName)
-& javac --release 17 -encoding UTF-8 -d $classes @sources
+& javac --release 21 -encoding UTF-8 -d $classes @sources
 if ($LASTEXITCODE -ne 0) { throw 'Java compilation failed.' }
 Copy-Item -LiteralPath (Join-Path $SourceDir '.env') -Destination (Join-Path $classes '.env')
 & jar "-J-Djava.io.tmpdir=$buildDir" --create --file (Join-Path $inputDir 'Pongie.jar') --main-class Game -C $classes .
