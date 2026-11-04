@@ -1,14 +1,14 @@
+// No Rust standard library and no C runtime: the exe imports only from DLLs that ship with
+// Windows (raw-dylib, so no import libraries or Visual Studio are needed to link it).
+// `cargo test` builds with std and ordinary import libraries (no dlltool needed).
+#![cfg_attr(not(test), no_std)]
+#![cfg_attr(not(test), no_main)]
 #![windows_subsystem = "windows"]
+#![cfg_attr(test, allow(dead_code))]
 
-use std::cell::RefCell;
-use std::ffi::c_void;
-use std::io::Write;
-use std::os::windows::process::CommandExt;
-use std::process::{Command, Stdio};
-use std::ptr::{null, null_mut};
-use std::sync::Arc;
-use std::sync::mpsc::{Receiver, Sender, channel};
-use std::time::{Duration, Instant};
+use core::cell::UnsafeCell;
+use core::ffi::c_void;
+use core::ptr::{null, null_mut};
 
 const FPS: i32 = 60;
 const BALL_SIZE: i32 = 30;
@@ -74,7 +74,8 @@ struct MonitorInfo {
     flags: u32,
 }
 
-#[link(name = "user32")]
+#[cfg_attr(all(windows, not(test)), link(name = "user32", kind = "raw-dylib"))]
+#[cfg_attr(all(windows, test), link(name = "user32"))]
 unsafe extern "system" {
     fn RegisterClassW(class: *const WndClass) -> u16;
     fn CreateWindowExW(ex_style: u32, class: *const u16, title: *const u16, style: u32,
@@ -84,8 +85,8 @@ unsafe extern "system" {
     fn ShowWindow(hwnd: H, cmd: i32) -> i32;
     fn UpdateWindow(hwnd: H) -> i32;
     fn PeekMessageW(msg: *mut Msg, hwnd: H, min: u32, max: u32, remove: u32) -> i32;
-    fn TranslateMessage(msg: *const Msg) -> i32;
     fn DispatchMessageW(msg: *const Msg) -> isize;
+    fn PostMessageW(hwnd: H, msg: u32, wparam: usize, lparam: isize) -> i32;
     fn PostQuitMessage(code: i32);
     fn MsgWaitForMultipleObjects(count: u32, handles: *const H, wait_all: i32, ms: u32, wake: u32) -> u32;
     fn InvalidateRect(hwnd: H, rect: *const Rect, erase: i32) -> i32;
@@ -104,7 +105,8 @@ unsafe extern "system" {
     fn AdjustWindowRectEx(rect: *mut Rect, style: u32, menu: i32, ex_style: u32) -> i32;
 }
 
-#[link(name = "gdi32")]
+#[cfg_attr(all(windows, not(test)), link(name = "gdi32", kind = "raw-dylib"))]
+#[cfg_attr(all(windows, test), link(name = "gdi32"))]
 unsafe extern "system" {
     fn GetStockObject(index: i32) -> H;
     fn SetDCBrushColor(dc: H, color: u32) -> u32;
@@ -128,14 +130,55 @@ unsafe extern "system" {
     fn SelectClipRgn(dc: H, rgn: H) -> i32;
 }
 
-#[link(name = "kernel32")]
+#[cfg_attr(all(windows, not(test)), link(name = "kernel32", kind = "raw-dylib"))]
+#[cfg_attr(all(windows, test), link(name = "kernel32"))]
 unsafe extern "system" {
     fn GetTickCount64() -> u64;
     fn GetModuleHandleW(name: *const u16) -> H;
+    fn GetModuleFileNameW(module: H, name: *mut u16, size: u32) -> u32;
     fn CreateWaitableTimerExW(attributes: *const c_void, name: *const u16, flags: u32, access: u32) -> H;
     fn SetWaitableTimer(timer: H, due: *const i64, period: i32,
                         completion: *const c_void, arg: *const c_void, resume: i32) -> i32;
+    fn QueryPerformanceCounter(count: *mut i64) -> i32;
+    fn QueryPerformanceFrequency(freq: *mut i64) -> i32;
+    fn CreateFileW(name: *const u16, access: u32, share: u32, security: *const c_void,
+                   disposition: u32, flags: u32, template: H) -> H;
+    fn ReadFile(file: H, buffer: *mut u8, len: u32, read: *mut u32, overlapped: *mut c_void) -> i32;
+    fn CreateThread(security: *const c_void, stack: usize, start: unsafe extern "system" fn(H) -> u32,
+                    param: H, flags: u32, id: *mut u32) -> H;
+    fn GetLastError() -> u32;
     fn CloseHandle(handle: H) -> i32;
+    fn ExitProcess(code: u32) -> !;
+}
+
+#[cfg_attr(all(windows, not(test)), link(name = "winhttp", kind = "raw-dylib"))]
+#[cfg_attr(all(windows, test), link(name = "winhttp"))]
+unsafe extern "system" {
+    fn WinHttpOpen(agent: *const u16, access: u32, proxy: *const u16, bypass: *const u16, flags: u32) -> H;
+    fn WinHttpConnect(session: H, server: *const u16, port: u16, reserved: u32) -> H;
+    fn WinHttpSetTimeouts(handle: H, resolve: i32, connect: i32, send: i32, receive: i32) -> i32;
+    fn WinHttpOpenRequest(connect: H, verb: *const u16, path: *const u16, version: *const u16,
+                          referrer: *const u16, accept: *const *const u16, flags: u32) -> H;
+    fn WinHttpSetOption(handle: H, option: u32, buffer: *const c_void, len: u32) -> i32;
+    fn WinHttpSendRequest(request: H, headers: *const u16, headers_len: u32, body: *const c_void,
+                          body_len: u32, total_len: u32, context: usize) -> i32;
+    fn WinHttpReceiveResponse(request: H, reserved: *mut c_void) -> i32;
+    fn WinHttpQueryHeaders(request: H, level: u32, name: *const u16, buffer: *mut c_void,
+                           len: *mut u32, index: *mut u32) -> i32;
+    fn WinHttpReadData(request: H, buffer: *mut c_void, len: u32, read: *mut u32) -> i32;
+    fn WinHttpCloseHandle(handle: H) -> i32;
+}
+
+// The compiler may emit calls to these for struct copies and zeroing (it depends on the
+// opt-level). ntdll is mapped into every process anyway, and only what's used gets imported.
+#[cfg(all(windows, not(test)))]
+#[link(name = "ntdll", kind = "raw-dylib")]
+#[allow(dead_code)]
+unsafe extern "C" {
+    fn memcpy(dst: *mut c_void, src: *const c_void, n: usize) -> *mut c_void;
+    fn memmove(dst: *mut c_void, src: *const c_void, n: usize) -> *mut c_void;
+    fn memset(dst: *mut c_void, c: i32, n: usize) -> *mut c_void;
+    fn memcmp(a: *const c_void, b: *const c_void, n: usize) -> i32;
 }
 
 const WM_DESTROY: u32 = 0x0002;
@@ -146,6 +189,7 @@ const WM_QUIT: u32 = 0x0012;
 const WM_ERASEBKGND: u32 = 0x0014;
 const WM_KEYDOWN: u32 = 0x0100;
 const WM_KEYUP: u32 = 0x0101;
+const WM_APP_SHOT: u32 = 0x8000; // WM_APP: a model answer, wparam = approach, lparam = shot
 const VK_ESCAPE: usize = 0x1B;
 const VK_UP: usize = 0x26;
 const VK_DOWN: usize = 0x28;
@@ -175,94 +219,331 @@ const FW_BOLD: i32 = 700;
 const DEFAULT_CHARSET: u32 = 1;
 const CLEARTYPE_QUALITY: u32 = 5;
 const CREATE_WAITABLE_TIMER_HIGH_RESOLUTION: u32 = 0x0000_0002;
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const TIMER_ALL_ACCESS: u32 = 0x001F_0003;
+const GENERIC_READ: u32 = 0x8000_0000;
+const FILE_SHARE_READ: u32 = 1;
+const OPEN_EXISTING: u32 = 3;
+const INVALID_HANDLE: H = usize::MAX as H;
+const STACK_SIZE_PARAM_IS_A_RESERVATION: u32 = 0x0001_0000;
+const WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY: u32 = 4; // system/PAC proxy, like the rest of Windows
+const WINHTTP_FLAG_SECURE: u32 = 0x0080_0000;
+const WINHTTP_OPTION_ENABLE_FEATURE: u32 = 79;
+const WINHTTP_ENABLE_SSL_REVOCATION: u32 = 1;
+const WINHTTP_QUERY_STATUS_CODE: u32 = 19;
+const WINHTTP_QUERY_FLAG_NUMBER: u32 = 0x2000_0000;
+const ERROR_WINHTTP_SECURE_CERT_REV_FAILED: u32 = 12057;
 
 const fn rgb(r: u32, g: u32, b: u32) -> u32 {
     r | g << 8 | b << 16
 }
 
-fn wide(s: &str) -> Vec<u16> {
-    s.encode_utf16().chain([0]).collect()
+// ASCII string literal -> UTF-16 array, at compile time. `wz!` adds the terminating 0.
+macro_rules! w {
+    ($s:expr) => {{
+        const S: &str = $s;
+        const W: [u16; S.len()] = {
+            let (b, mut out, mut i) = (S.as_bytes(), [0u16; S.len()], 0);
+            while i < b.len() {
+                out[i] = b[i] as u16;
+                i += 1;
+            }
+            out
+        };
+        &W
+    }};
+}
+macro_rules! wz {
+    ($s:literal) => { w!(concat!($s, "\0")).as_ptr() };
+}
+
+// Shared mutable state. The game is only touched on the window thread; the model buffers are
+// handed to the one worker thread in flight and not touched again until it answers.
+struct Global<T>(UnsafeCell<T>);
+unsafe impl<T> Sync for Global<T> {}
+impl<T> Global<T> {
+    #[allow(clippy::mut_from_ref)]
+    fn get(&self) -> &mut T {
+        unsafe { &mut *self.0.get() }
+    }
+}
+
+// Fixed-size append-only buffer; anything past the end is dropped (callers check `full`).
+struct Buf<T: Copy, const N: usize> {
+    data: [T; N],
+    len: usize,
+}
+
+impl<T: Copy + From<u8>, const N: usize> Buf<T, N> {
+    const fn new(zero: T) -> Self {
+        Buf { data: [zero; N], len: 0 }
+    }
+    fn push(&mut self, items: &[T]) {
+        for &item in items {
+            if self.len < N {
+                self.data[self.len] = item;
+                self.len += 1;
+            }
+        }
+    }
+    fn push_ascii(&mut self, s: &[u8]) {
+        for &b in s {
+            self.push(&[T::from(b)]);
+        }
+    }
+    fn push_int(&mut self, n: i32) {
+        let (mut digits, mut i, mut v) = ([0u8; 11], 11, n.unsigned_abs());
+        loop {
+            i -= 1;
+            digits[i] = b'0' + (v % 10) as u8;
+            v /= 10;
+            if v == 0 {
+                break;
+            }
+        }
+        if n < 0 {
+            self.push_ascii(b"-");
+        }
+        self.push_ascii(&digits[i..]);
+    }
+    fn full(&self) -> bool {
+        self.len >= N
+    }
+    #[cfg(test)]
+    fn as_slice(&self) -> &[T] {
+        &self.data[..self.len]
+    }
+}
+
+// core has no float rounding without libm, and these only need whole pixels.
+fn floor(x: f64) -> f64 {
+    let t = x as i64 as f64;
+    if t > x { t - 1.0 } else { t }
+}
+
+fn ceil(x: f64) -> f64 {
+    let t = x as i64 as f64;
+    if t < x { t + 1.0 } else { t }
+}
+
+fn abs(x: f64) -> f64 {
+    if x < 0.0 { -x } else { x }
 }
 
 // ---- Cloudflare clef-flash: picks which way to send the ball back (Engine.java's ATTACK) ----
 
+const SHOT_NONE: u8 = 0; // no answer, an error, or "straight": keep the defensive spot
+const SHOT_UP: u8 = 1;
+const SHOT_DOWN: u8 = 2;
+
 struct Api {
-    key: String,
-    account: String,
+    session: H,
+    connect: H,
+    path: Buf<u16, 160>,
+    headers: Buf<u16, 320>,
+    body: Buf<u8, 1024>,
+    skip_revocation: bool,
 }
 
-// Read CLOUDFLARE_CLEF_API_KEY / CLOUDFLARE_ACCOUNT_ID from .env in the working
-// directory, else next to the exe. No keys = defend only, like the Java engine.
-fn load_api() -> Option<Api> {
-    let beside_exe = std::env::current_exe().ok()?.with_file_name(".env");
-    let text = std::fs::read_to_string(".env").or_else(|_| std::fs::read_to_string(beside_exe)).ok()?;
-    let (mut key, mut account) = (String::new(), String::new());
-    for line in text.lines() {
-        if let Some((k, v)) = line.split_once('=') {
-            match k.trim() {
-                "CLOUDFLARE_CLEF_API_KEY" => key = v.trim().to_string(),
-                "CLOUDFLARE_ACCOUNT_ID" => account = v.trim().to_string(),
+static API: Global<Api> = Global(UnsafeCell::new(Api {
+    session: null_mut(),
+    connect: null_mut(),
+    path: Buf::new(0),
+    headers: Buf::new(0),
+    body: Buf::new(0),
+    skip_revocation: false,
+}));
+static FILE: Global<[u8; 4096]> = Global(UnsafeCell::new([0; 4096]));
+static REPLY: Global<[u8; 4096]> = Global(UnsafeCell::new([0; 4096]));
+
+fn trim(mut s: &[u8]) -> &[u8] {
+    while let [b' ' | b'\t' | b'\r', rest @ ..] = s {
+        s = rest;
+    }
+    while let [rest @ .., b' ' | b'\t' | b'\r'] = s {
+        s = rest;
+    }
+    s
+}
+
+// CLOUDFLARE_CLEF_API_KEY / CLOUDFLARE_ACCOUNT_ID from a .env file's text.
+fn parse_env(text: &[u8]) -> Option<(&[u8], &[u8])> {
+    let (mut key, mut account): (&[u8], &[u8]) = (&[], &[]);
+    for line in text.split(|&b| b == b'\n') {
+        if let Some(eq) = line.iter().position(|&b| b == b'=') {
+            match trim(&line[..eq]) {
+                b"CLOUDFLARE_CLEF_API_KEY" => key = trim(&line[eq + 1..]),
+                b"CLOUDFLARE_ACCOUNT_ID" => account = trim(&line[eq + 1..]),
                 _ => {}
             }
         }
     }
-    (!key.is_empty() && !account.is_empty()).then_some(Api { key, account })
+    let printable = |s: &[u8]| s.iter().all(|&b| (0x21..0x7F).contains(&b)); // no header injection
+    (!key.is_empty() && !account.is_empty() && printable(key) && printable(account)).then_some((key, account))
 }
 
-// Pull "down" out of ..."choice":"down",... (same job as Engine.java's regex). Keeps
-// scanning like a regex would: the reply also contains "type":"choice" before the answer.
-fn parse_choice(reply: &str) -> Option<String> {
-    reply.match_indices("\"choice\"").find_map(|(at, key)| {
-        let rest = reply[at + key.len()..].trim_start().strip_prefix(':')?;
-        let rest = rest.trim_start().strip_prefix('"')?;
-        let end = rest.find(|c: char| !(c.is_alphanumeric() || c == '_'))?;
-        (end > 0 && rest[end..].starts_with('"')).then(|| rest[..end].to_string())
-    })
-}
-
-// ponytail: Windows' own curl.exe (Windows 10 1803+) instead of an HTTP crate. It uses the
-// Windows certificate store like the Java engine does, and the key goes in on stdin so it
-// never shows up in the process list.
-fn ask_model(api: &Api, height: i32, hit_y: i32, player_middle: i32) -> Option<String> {
-    let body = format!(
-        concat!(
-            r#"{{"model":"clef-flash","state":"Pong. The screen is {} tall, y=0 is the top. "#,
-            r#"You are the right paddle and you are about to hit the ball back at y={}. "#,
-            r#"The other player's paddle is on the left side, centred at y={}. "#,
-            r#"The ball bounces off the top and bottom walls.","questions":{{"shot":{{"#,
-            r#""type":"choice","instructions":"Which way should you send the ball so it is "#,
-            r#"hardest for the other player to reach? Aim away from where they are.","criteria":{{"#,
-            r#""up":"Send the ball upward, towards y=0","straight":"Send the ball straight across","#,
-            r#""down":"Send the ball downward, towards the bottom"}}}}}}}}"#
-        ),
-        height, hit_y, player_middle
-    );
-    let quote = |s: &str| s.replace('\\', "\\\\").replace('"', "\\\"");
-    let config = format!(
-        "url = \"https://api.cloudflare.com/client/v4/accounts/{}/ai/run/@cf/cloudflare/clef-flash\"\n\
-         header = \"Authorization: Bearer {}\"\n\
-         header = \"Content-Type: application/json\"\n\
-         data-binary = \"{}\"\n",
-        quote(&api.account), quote(&api.key), quote(&body)
-    );
-    let mut curl = Command::new("curl.exe")
-        // best-effort revocation: school proxies re-sign HTTPS with a CA whose revocation list is
-        // unreachable. Java skips revocation checks entirely; this still rejects revoked certs.
-        .args(["--silent", "--fail", "--ssl-revoke-best-effort", "--max-time", "10", "--config", "-"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .creation_flags(CREATE_NO_WINDOW)
-        .spawn()
-        .ok()?;
-    curl.stdin.take()?.write_all(config.as_bytes()).ok()?;
-    let out = curl.wait_with_output().ok()?;
-    if !out.status.success() {
-        return None;
+// Read .env from the working directory, else next to the exe. No keys = defend only.
+unsafe fn read_env() -> Option<&'static [u8]> {
+    unsafe {
+        let mut file = CreateFileW(wz!(".env"), GENERIC_READ, FILE_SHARE_READ, null(), OPEN_EXISTING, 0, null_mut());
+        if file == INVALID_HANDLE {
+            let mut path = [0u16; 300];
+            let len = GetModuleFileNameW(null_mut(), path.as_mut_ptr(), 260) as usize;
+            let slash = path[..len.min(260)].iter().rposition(|&c| c == b'\\' as u16)?;
+            path[slash + 1..slash + 5].copy_from_slice(w!(".env"));
+            path[slash + 5] = 0;
+            file = CreateFileW(path.as_ptr(), GENERIC_READ, FILE_SHARE_READ, null(), OPEN_EXISTING, 0, null_mut());
+            if file == INVALID_HANDLE {
+                return None;
+            }
+        }
+        let buf = FILE.get();
+        let mut read = 0;
+        let ok = ReadFile(file, buf.as_mut_ptr(), buf.len() as u32, &mut read, null_mut());
+        CloseHandle(file);
+        (ok != 0).then(|| &buf[..(read as usize).min(buf.len())])
     }
-    parse_choice(&String::from_utf8_lossy(&out.stdout))
+}
+
+// One WinHTTP session and connection for the whole game: after the first request, later
+// ones reuse the open TLS connection instead of a new process + handshake each time.
+unsafe fn open_api() -> bool {
+    let Some((key, account)) = (unsafe { read_env() }).and_then(parse_env) else { return false };
+    let api = API.get();
+    api.path.push_ascii(b"/client/v4/accounts/");
+    api.path.push_ascii(account);
+    api.path.push_ascii(b"/ai/run/@cf/cloudflare/clef-flash\0");
+    api.headers.push_ascii(b"Authorization: Bearer ");
+    api.headers.push_ascii(key);
+    api.headers.push_ascii(b"\r\nContent-Type: application/json\0");
+    if api.path.full() || api.headers.full() {
+        return false;
+    }
+    unsafe {
+        api.session = WinHttpOpen(wz!("Pongie"), WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, null(), null(), 0);
+        if api.session.is_null() {
+            return false;
+        }
+        WinHttpSetTimeouts(api.session, 10_000, 10_000, 10_000, 10_000);
+        api.connect = WinHttpConnect(api.session, wz!("api.cloudflare.com"), 443, 0);
+        !api.connect.is_null()
+    }
+}
+
+fn build_body(body: &mut Buf<u8, 1024>, height: i32, hit_y: i32, player_middle: i32) {
+    body.len = 0;
+    body.push_ascii(br#"{"model":"clef-flash","state":"Pong. The screen is "#);
+    body.push_int(height);
+    body.push_ascii(br#" tall, y=0 is the top. You are the right paddle and you are about to hit the ball back at y="#);
+    body.push_int(hit_y);
+    body.push_ascii(br#". The other player's paddle is on the left side, centred at y="#);
+    body.push_int(player_middle);
+    body.push_ascii(concat!(
+        r#". The ball bounces off the top and bottom walls.","questions":{"shot":{"#,
+        r#""type":"choice","instructions":"Which way should you send the ball so it is "#,
+        r#"hardest for the other player to reach? Aim away from where they are.","criteria":{"#,
+        r#""up":"Send the ball upward, towards y=0","straight":"Send the ball straight across","#,
+        r#""down":"Send the ball downward, towards the bottom"}}}}"#
+    ).as_bytes());
+}
+
+// Pull "down" out of ..."choice":"down",... Keeps scanning like a regex would: the reply
+// also contains "type":"choice" before the answer.
+fn parse_choice(reply: &[u8]) -> u8 {
+    const KEY: &[u8] = b"\"choice\"";
+    let skip_space = |s: &[u8], mut i: usize| {
+        while matches!(s.get(i), Some(b' ' | b'\t' | b'\r' | b'\n')) {
+            i += 1;
+        }
+        i
+    };
+    for at in 0..reply.len() {
+        if !reply[at..].starts_with(KEY) {
+            continue;
+        }
+        let mut i = skip_space(reply, at + KEY.len());
+        if reply.get(i) != Some(&b':') {
+            continue;
+        }
+        i = skip_space(reply, i + 1);
+        if reply.get(i) != Some(&b'"') {
+            continue;
+        }
+        let start = i + 1;
+        let word = reply[start..].iter().take_while(|b| b.is_ascii_alphanumeric() || **b == b'_').count();
+        if word > 0 && reply.get(start + word) == Some(&b'"') {
+            return match &reply[start..start + word] {
+                b"up" => SHOT_UP,
+                b"down" => SHOT_DOWN,
+                _ => SHOT_NONE,
+            };
+        }
+    }
+    SHOT_NONE
+}
+
+unsafe fn post_request() -> H {
+    let api = API.get();
+    // Best-effort revocation, like curl's --ssl-revoke-best-effort: school proxies re-sign HTTPS
+    // with a CA whose revocation list is unreachable, so retry once without the check. A revoked
+    // certificate still fails.
+    for _ in 0..2 {
+        unsafe {
+            let request = WinHttpOpenRequest(api.connect, wz!("POST"), api.path.data.as_ptr(), null(), null(),
+                                             null(), WINHTTP_FLAG_SECURE);
+            if request.is_null() {
+                return null_mut();
+            }
+            if !api.skip_revocation {
+                let on = WINHTTP_ENABLE_SSL_REVOCATION;
+                WinHttpSetOption(request, WINHTTP_OPTION_ENABLE_FEATURE, (&raw const on).cast(), 4);
+            }
+            let len = api.body.len as u32;
+            if WinHttpSendRequest(request, api.headers.data.as_ptr(), u32::MAX, api.body.data.as_ptr().cast(), len, len, 0) != 0
+                && WinHttpReceiveResponse(request, null_mut()) != 0
+            {
+                return request;
+            }
+            let error = GetLastError();
+            WinHttpCloseHandle(request);
+            if error != ERROR_WINHTTP_SECURE_CERT_REV_FAILED || api.skip_revocation {
+                return null_mut();
+            }
+            api.skip_revocation = true;
+        }
+    }
+    null_mut()
+}
+
+// One request: the answer, or SHOT_NONE for no answer, an HTTP error or "straight".
+fn fetch_shot() -> u8 {
+    unsafe {
+        let request = post_request();
+        if request.is_null() {
+            return SHOT_NONE;
+        }
+        let (mut status, mut size) = (0u32, 4u32);
+        WinHttpQueryHeaders(request, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, null(),
+                            (&raw mut status).cast(), &mut size, null_mut());
+        let reply = REPLY.get();
+        let mut len = 0;
+        while len < reply.len() {
+            let mut read = 0;
+            let chunk = &mut reply[len..];
+            if WinHttpReadData(request, chunk.as_mut_ptr().cast(), chunk.len() as u32, &mut read) == 0 || read == 0 {
+                break;
+            }
+            len += read as usize;
+        }
+        WinHttpCloseHandle(request);
+        if (200..300).contains(&status) { parse_choice(&reply[..len.min(reply.len())]) } else { SHOT_NONE }
+    }
+}
+
+// Worker thread: one request, then post the answer back to the window and exit.
+unsafe extern "system" fn ask_model(approach: H) -> u32 {
+    let shot = fetch_shot();
+    unsafe { PostMessageW(game().window, WM_APP_SHOT, approach as usize, shot as isize) };
+    0
 }
 
 // ---- Game ----
@@ -274,7 +555,7 @@ enum State {
     GameOver,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 struct Paddle {
     x: f64,
     y: f64,
@@ -299,7 +580,7 @@ struct Game {
     state: State,
     timer: i32,
     message_timer: i32,
-    message: &'static str,
+    message: &'static [u16],
     moving_up: bool,
     moving_down: bool,
     fullscreen: bool,
@@ -308,11 +589,19 @@ struct Game {
     back_dc: H,
     back_bitmap: H,
     original_bitmap: H,
-    api: Option<Arc<Api>>,
+    dirty_region: H,
+    has_api: bool,
     approach: u32, // bumped every time the ball heads at the opponent
     asking: bool,  // a model request is in flight (one at a time, like Engine.java)
     landing_y: f64,
-    shots: (Sender<(u32, Option<String>)>, Receiver<(u32, Option<String>)>),
+}
+
+static GAME: Global<Game> = Global(UnsafeCell::new(Game::new()));
+
+// Window calls like SetWindowPos send WM_SIZE straight back into window_proc, so never
+// keep this reference across one of those calls.
+fn game() -> &'static mut Game {
+    GAME.get()
 }
 
 // Same order as Paddle.java: top first, then bottom (bottom wins on a tiny window).
@@ -326,7 +615,7 @@ fn overlaps(b: &Ball, p: &Paddle) -> bool {
 }
 
 impl Game {
-    fn new() -> Self {
+    const fn new() -> Self {
         Game {
             window: null_mut(),
             width: 800,
@@ -338,7 +627,7 @@ impl Game {
             state: State::Countdown,
             timer: 3 * FPS,
             message_timer: 0,
-            message: "3",
+            message: w!("3"),
             moving_up: false,
             moving_down: false,
             fullscreen: false,
@@ -347,11 +636,11 @@ impl Game {
             back_dc: null_mut(),
             back_bitmap: null_mut(),
             original_bitmap: null_mut(),
-            api: None,
+            dirty_region: null_mut(),
+            has_api: false,
             approach: 0,
             asking: false,
             landing_y: 300.0,
-            shots: channel(),
         }
     }
 
@@ -374,39 +663,40 @@ impl Game {
     // Plan once per approach, like the Java engine thread, not every frame.
     // DEFEND: head for the landing spot now. ATTACK: ask the model (off-thread) which way to aim.
     fn aim(&mut self) {
-        self.approach += 1;
+        self.approach = self.approach.wrapping_add(1);
         if self.ball.speed_x <= 0.0 {
             self.opponent_target_y = (self.height / 2) as f64; // wait in the middle
             return;
         }
         self.landing_y = self.predict_landing_y();
         self.opponent_target_y = self.landing_y;
-        let Some(api) = self.api.clone() else { return };
-        if self.asking {
+        if !self.has_api || self.asking {
             return;
         }
-        self.asking = true;
-        let (approach, height, hit_y) = (self.approach, self.height, self.landing_y as i32);
         let player_middle = self.player.y as i32 + PADDLE_HEIGHT / 2;
-        let reply = self.shots.0.clone();
-        std::thread::spawn(move || {
-            let _ = reply.send((approach, ask_model(&api, height, hit_y, player_middle)));
-        });
+        build_body(&mut API.get().body, self.height, self.landing_y as i32, player_middle);
+        // ponytail: a short-lived thread per approach (a few per rally); the connection is what's reused.
+        let thread = unsafe {
+            CreateThread(null(), 64 * 1024, ask_model, self.approach as usize as H,
+                         STACK_SIZE_PARAM_IS_A_RESERVATION, null_mut())
+        };
+        if !thread.is_null() {
+            self.asking = true;
+            unsafe { CloseHandle(thread) };
+        }
     }
 
     // Apply a model answer if it is for this approach and the ball is still far enough away.
-    fn take_shot(&mut self) {
-        while let Ok((approach, shot)) = self.shots.1.try_recv() {
-            self.asking = false;
-            let frames_left = (self.opponent.x - (self.ball.x + BALL_SIZE as f64)) / self.ball.speed_x;
-            if approach != self.approach || self.ball.speed_x <= 0.0 || frames_left <= 15.0 {
-                continue;
-            }
-            match shot.as_deref() {
-                Some("up") => self.opponent_target_y = self.landing_y + AIM_SHIFT, // hit its top part
-                Some("down") => self.opponent_target_y = self.landing_y - AIM_SHIFT, // hit its bottom part
-                _ => {}
-            }
+    fn take_shot(&mut self, approach: u32, shot: u8) {
+        self.asking = false;
+        let frames_left = (self.opponent.x - (self.ball.x + BALL_SIZE as f64)) / self.ball.speed_x;
+        if approach != self.approach || self.ball.speed_x <= 0.0 || frames_left <= 15.0 {
+            return;
+        }
+        match shot {
+            SHOT_UP => self.opponent_target_y = self.landing_y + AIM_SHIFT, // hit its top part
+            SHOT_DOWN => self.opponent_target_y = self.landing_y - AIM_SHIFT, // hit its bottom part
+            _ => {}
         }
     }
 
@@ -430,34 +720,35 @@ impl Game {
         let paddle_middle = paddle.y + PADDLE_HEIGHT as f64 / 2.0;
         let hit_spot = ((ball_middle - paddle_middle) / (PADDLE_HEIGHT as f64 / 2.0)).clamp(-1.0, 1.0);
         self.ball.speed_x = -self.ball.speed_x * SPEED_UP;
-        self.ball.speed_y = hit_spot * self.ball.speed_x.abs();
+        self.ball.speed_y = hit_spot * abs(self.ball.speed_x);
         self.aim();
     }
 
     fn invalidate_sprite(&self, x: f64, y: f64, w: i32, h: i32) {
         let area = Rect {
-            left: x.floor() as i32 - 1,
-            top: y.floor() as i32 - 1,
-            right: (x + w as f64).ceil() as i32 + 1,
-            bottom: (y + h as f64).ceil() as i32 + 1,
+            left: floor(x) as i32 - 1,
+            top: floor(y) as i32 - 1,
+            right: ceil(x + w as f64) as i32 + 1,
+            bottom: ceil(y + h as f64) as i32 + 1,
         };
         unsafe { InvalidateRect(self.window, &area, 0) };
     }
 
-    fn invalidate_sprites(&self) {
-        self.invalidate_sprite(self.player.x, self.player.y, PADDLE_WIDTH, PADDLE_HEIGHT);
-        self.invalidate_sprite(self.opponent.x, self.opponent.y, PADDLE_WIDTH, PADDLE_HEIGHT);
-        self.invalidate_sprite(self.ball.x, self.ball.y, BALL_SIZE, BALL_SIZE);
+    // Old and new spot of anything that moved; a paddle standing still isn't redrawn.
+    fn invalidate_paddle(&self, old: Paddle, new: Paddle) {
+        if old != new {
+            self.invalidate_sprite(old.x, old.y, PADDLE_WIDTH, PADDLE_HEIGHT);
+            self.invalidate_sprite(new.x, new.y, PADDLE_WIDTH, PADDLE_HEIGHT);
+        }
     }
 
     // Returns true when the whole window needs repainting (the message changed).
     fn update(&mut self) -> bool {
         if self.state == State::Playing {
-            self.invalidate_sprites();
-            self.take_shot();
+            let (old_player, old_opponent, old_ball) = (self.player, self.opponent, self.ball);
 
-            let speed = self.ball.speed_x.abs();
-            let paddle_speed = speed.round(); // Java paddles move whole pixels
+            let speed = abs(self.ball.speed_x);
+            let paddle_speed = (speed + 0.5) as i64 as f64; // Java paddles move whole pixels (round)
             if self.moving_up {
                 self.player.y -= paddle_speed;
             }
@@ -494,11 +785,14 @@ impl Game {
             if self.ball.x <= 0.0 || self.ball.x + BALL_SIZE as f64 >= self.width as f64 {
                 self.reset();
                 self.state = State::GameOver;
-                self.message = "GAME OVER";
+                self.message = w!("GAME OVER");
                 self.timer = 3 * FPS;
                 return true;
             }
-            self.invalidate_sprites();
+            self.invalidate_paddle(old_player, self.player);
+            self.invalidate_paddle(old_opponent, self.opponent);
+            self.invalidate_sprite(old_ball.x, old_ball.y, BALL_SIZE, BALL_SIZE);
+            self.invalidate_sprite(self.ball.x, self.ball.y, BALL_SIZE, BALL_SIZE);
             return self.tick_message();
         }
 
@@ -506,7 +800,7 @@ impl Game {
         if self.state == State::GameOver {
             if self.timer == 0 {
                 self.state = State::Countdown;
-                self.message = "3";
+                self.message = w!("3");
                 self.timer = 3 * FPS;
                 return true;
             }
@@ -514,11 +808,11 @@ impl Game {
         }
 
         match self.timer {
-            t if t == 2 * FPS => self.message = "2",
-            t if t == FPS => self.message = "1",
+            t if t == 2 * FPS => self.message = w!("2"),
+            t if t == FPS => self.message = w!("1"),
             0 => {
                 self.state = State::Playing;
-                self.message = "GO!";
+                self.message = w!("GO!");
                 self.message_timer = FPS;
                 self.aim();
             }
@@ -532,7 +826,7 @@ impl Game {
         if self.message_timer > 0 {
             self.message_timer -= 1;
             if self.message_timer == 0 {
-                self.message = "";
+                self.message = &[];
                 return true;
             }
         }
@@ -566,18 +860,11 @@ impl Game {
             SelectObject(dc, old_brush);
 
             if !self.message.is_empty() {
-                // Messages are short and fixed, so encode on the stack instead of allocating.
-                let mut text = [0u16; 16];
-                let mut len = 0;
-                for (slot, unit) in text.iter_mut().zip(self.message.encode_utf16()) {
-                    *slot = unit;
-                    len += 1;
-                }
                 let old_font = SelectObject(dc, self.font);
                 SetTextColor(dc, rgb(255, 255, 255));
                 SetBkMode(dc, TRANSPARENT);
                 SetTextAlign(dc, TA_CENTER | TA_BASELINE); // Java: centred, baseline at mid-height
-                TextOutW(dc, self.width / 2, self.height / 2, text.as_ptr(), len);
+                TextOutW(dc, self.width / 2, self.height / 2, self.message.as_ptr(), self.message.len() as i32);
                 SelectObject(dc, old_font);
             }
         }
@@ -617,38 +904,24 @@ impl Game {
     }
 }
 
-thread_local! {
-    static GAME: RefCell<Game> = RefCell::new(Game::new());
-}
-
-// Window calls like SetWindowPos send WM_SIZE straight back into window_proc,
-// so never make one while holding this borrow (RefCell would panic, not corrupt).
-fn with<R>(f: impl FnOnce(&mut Game) -> R) -> R {
-    GAME.with_borrow_mut(f)
-}
-
 fn toggle_fullscreen() {
-    let (window, fullscreen) = with(|g| (g.window, g.fullscreen));
+    let (window, fullscreen) = (game().window, game().fullscreen);
     unsafe {
-        let mut monitor: MonitorInfo = std::mem::zeroed();
+        let mut monitor: MonitorInfo = core::mem::zeroed();
         monitor.size = size_of::<MonitorInfo>() as u32;
         GetMonitorInfoW(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &mut monitor);
         if !fullscreen {
             let style = GetWindowLongPtrW(window, GWL_STYLE);
-            with(|g| {
-                g.windowed_style = style;
-                g.fullscreen = true;
-            });
+            game().windowed_style = style;
+            game().fullscreen = true;
             let m = monitor.monitor;
             SetWindowLongPtrW(window, GWL_STYLE, style & !(WS_OVERLAPPEDWINDOW as isize));
             SetWindowPos(window, null_mut(), m.left, m.top, m.right - m.left, m.bottom - m.top,
                          SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
         } else {
             // Like Java's pack(): a normal (not maximized) window with an 800x600 game area, centred.
-            let style = with(|g| {
-                g.fullscreen = false;
-                g.windowed_style & !(WS_MAXIMIZE as isize)
-            });
+            game().fullscreen = false;
+            let style = game().windowed_style & !(WS_MAXIMIZE as isize);
             let mut r = Rect { left: 0, top: 0, right: 800, bottom: 600 };
             AdjustWindowRectEx(&mut r, style as u32, 0, 0);
             let (w, h) = (r.right - r.left, r.bottom - r.top);
@@ -667,70 +940,63 @@ unsafe extern "system" fn window_proc(window: H, message: u32, wparam: usize, lp
     unsafe {
         match message {
             WM_SIZE => {
-                with(|g| {
-                    g.width = (lparam & 0xFFFF).max(1) as i32;
-                    g.height = ((lparam >> 16) & 0xFFFF).max(1) as i32;
-                    g.create_back_buffer(window);
-                    g.opponent.x = (g.width - 35) as f64; // keep it on the right edge
-                    if g.state != State::Playing {
-                        g.reset();
-                    }
-                });
+                let g = game();
+                g.width = (lparam & 0xFFFF).max(1) as i32;
+                g.height = ((lparam >> 16) & 0xFFFF).max(1) as i32;
+                g.create_back_buffer(window);
+                g.opponent.x = (g.width - 35) as f64; // keep it on the right edge
+                if g.state != State::Playing {
+                    g.reset();
+                }
                 InvalidateRect(window, null(), 0);
                 0
             }
             WM_ERASEBKGND => 1,
             WM_PAINT => {
-                let dirty_region = CreateRectRgn(0, 0, 0, 0);
-                let region_type = GetUpdateRgn(window, dirty_region, 0);
-                let mut ps: PaintStruct = std::mem::zeroed();
+                let g = game();
+                let region_type = GetUpdateRgn(window, g.dirty_region, 0);
+                let mut ps: PaintStruct = core::mem::zeroed();
                 let screen = BeginPaint(window, &mut ps);
-                with(|g| {
-                    if g.back_dc.is_null() {
-                        return;
-                    }
+                if !g.back_dc.is_null() {
                     if region_type > NULLREGION {
-                        SelectClipRgn(g.back_dc, dirty_region);
+                        SelectClipRgn(g.back_dc, g.dirty_region);
                     }
                     g.paint(g.back_dc);
                     let d = ps.paint;
                     BitBlt(screen, d.left, d.top, d.right - d.left, d.bottom - d.top,
                            g.back_dc, d.left, d.top, SRCCOPY);
                     SelectClipRgn(g.back_dc, null_mut());
-                });
+                }
                 EndPaint(window, &ps);
-                DeleteObject(dirty_region);
+                0
+            }
+            WM_APP_SHOT => {
+                game().take_shot(wparam as u32, lparam as u8);
                 0
             }
             WM_KEYDOWN => {
-                if lparam & (1 << 30) == 0 {
-                    let fullscreen = with(|g| g.fullscreen);
-                    if wparam == VK_F11 || (wparam == VK_ESCAPE && fullscreen) {
-                        toggle_fullscreen();
-                    }
+                if lparam & (1 << 30) == 0 && (wparam == VK_F11 || (wparam == VK_ESCAPE && game().fullscreen)) {
+                    toggle_fullscreen();
                 }
-                with(|g| {
-                    g.moving_up |= up;
-                    g.moving_down |= down;
-                });
+                let g = game();
+                g.moving_up |= up;
+                g.moving_down |= down;
                 0
             }
             WM_KEYUP => {
-                with(|g| {
-                    g.moving_up &= !up;
-                    g.moving_down &= !down;
-                });
+                let g = game();
+                g.moving_up &= !up;
+                g.moving_down &= !down;
                 0
             }
             WM_KILLFOCUS => {
-                with(|g| {
-                    g.moving_up = false;
-                    g.moving_down = false;
-                });
+                let g = game();
+                g.moving_up = false;
+                g.moving_down = false;
                 0
             }
             WM_DESTROY => {
-                with(|g| g.release_back_buffer());
+                game().release_back_buffer();
                 PostQuitMessage(0);
                 0
             }
@@ -739,12 +1005,10 @@ unsafe extern "system" fn window_proc(window: H, message: u32, wparam: usize, lp
     }
 }
 
-fn main() {
-    let class_name = wide("PongRsWindow");
-    let title = wide("Pongie (Rust)");
-    let face = wide("Arial");
+unsafe fn run() {
     unsafe {
         let instance = GetModuleHandleW(null());
+        let class_name = wz!("PongRsWindow");
         let class = WndClass {
             style: 0,
             wnd_proc: window_proc,
@@ -755,61 +1019,61 @@ fn main() {
             cursor: LoadCursorW(null_mut(), IDC_ARROW as *const u16),
             background: GetStockObject(BLACK_BRUSH),
             menu_name: null(),
-            class_name: class_name.as_ptr(),
+            class_name,
         };
         if RegisterClassW(&class) == 0 {
             return;
         }
 
+        let g = game();
         // Negative height = em size, which is what Java's 72pt Arial means.
-        let font = CreateFontW(-72, 0, 0, 0, FW_BOLD, 0, 0, 0, DEFAULT_CHARSET, 0, 0,
-                               CLEARTYPE_QUALITY, 0, face.as_ptr());
-        let window = CreateWindowExW(0, class_name.as_ptr(), title.as_ptr(), WS_OVERLAPPEDWINDOW,
+        g.font = CreateFontW(-72, 0, 0, 0, FW_BOLD, 0, 0, 0, DEFAULT_CHARSET, 0, 0,
+                             CLEARTYPE_QUALITY, 0, wz!("Arial"));
+        g.dirty_region = CreateRectRgn(0, 0, 0, 0);
+        g.has_api = open_api();
+        g.reset();
+        let window = CreateWindowExW(0, class_name, wz!("Pongie (Rust)"), WS_OVERLAPPEDWINDOW,
                                      CW_USEDEFAULT, CW_USEDEFAULT, 800, 600,
                                      null_mut(), null_mut(), instance, null_mut());
         if window.is_null() {
-            DeleteObject(font);
             return;
         }
-        with(|g| {
-            g.window = window;
-            g.font = font;
-            g.api = load_api().map(Arc::new);
-            g.reset();
-        });
+        game().window = window;
         ShowWindow(window, SW_MAXIMIZE);
         UpdateWindow(window);
 
         // Sub-millisecond waits on Windows 10 1803+; plain ~15ms sleeps otherwise.
-        let timer = CreateWaitableTimerExW(null(), null(), CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
-                                           TIMER_ALL_ACCESS);
-        let frame = Duration::from_nanos(1_000_000_000 / FPS as u64);
-        let mut next_frame = Instant::now();
-        let mut msg: Msg = std::mem::zeroed();
+        let timer = CreateWaitableTimerExW(null(), null(), CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
+        let (mut freq, mut now) = (0i64, 0i64);
+        QueryPerformanceFrequency(&mut freq);
+        let frame = freq / FPS as i64;
+        QueryPerformanceCounter(&mut now);
+        let mut next_frame = now;
+        let mut msg: Msg = core::mem::zeroed();
         'running: loop {
-            let now = Instant::now();
+            QueryPerformanceCounter(&mut now);
             if now < next_frame {
-                let wait = next_frame - now;
+                let wait_100ns = (next_frame - now) * 10_000_000 / freq;
                 if !timer.is_null() {
-                    let due = -((wait.as_nanos() / 100) as i64); // negative = relative, 100ns units
+                    let due = -wait_100ns; // negative = relative
                     SetWaitableTimer(timer, &due, 0, null(), null(), 0);
                     MsgWaitForMultipleObjects(1, &timer, 0, INFINITE, QS_ALLINPUT);
                 } else {
-                    MsgWaitForMultipleObjects(0, null(), 0, wait.as_millis().max(1) as u32, QS_ALLINPUT);
+                    MsgWaitForMultipleObjects(0, null(), 0, (wait_100ns / 10_000).max(1) as u32, QS_ALLINPUT);
                 }
             }
 
+            // No TranslateMessage: nothing here reads WM_CHAR.
             while PeekMessageW(&mut msg, null_mut(), 0, 0, PM_REMOVE) != 0 {
                 if msg.message == WM_QUIT {
                     break 'running;
                 }
-                TranslateMessage(&msg);
                 DispatchMessageW(&msg);
             }
 
-            let now = Instant::now();
+            QueryPerformanceCounter(&mut now);
             if now >= next_frame {
-                if with(|g| g.update()) {
+                if game().update() {
                     InvalidateRect(window, null(), 0);
                 }
                 next_frame += frame;
@@ -818,13 +1082,29 @@ fn main() {
                 }
             }
         }
-
-        if !timer.is_null() {
-            CloseHandle(timer);
-        }
-        DeleteObject(font);
+        // ExitProcess frees the font, region, timer and WinHTTP handles.
     }
 }
+
+#[cfg(not(test))]
+#[unsafe(no_mangle)]
+extern "system" fn mainCRTStartup() -> ! {
+    unsafe {
+        run();
+        ExitProcess(0)
+    }
+}
+
+#[cfg(not(test))]
+#[panic_handler]
+fn panic(_: &core::panic::PanicInfo) -> ! {
+    unsafe { ExitProcess(1) }
+}
+
+// The linker wants this marker whenever floating point is used without a C runtime.
+#[cfg(not(test))]
+#[unsafe(no_mangle)]
+static _fltused: i32 = 0;
 
 #[cfg(test)]
 mod tests {
@@ -855,22 +1135,33 @@ mod tests {
         // A model answer for this approach shifts the aim; a stale one is ignored.
         g.ball = Ball { x: 0.0, y: 100.0, speed_x: 10.0, speed_y: 0.0 };
         g.aim();
-        g.shots.0.send((g.approach - 1, Some("up".into()))).unwrap();
-        g.take_shot();
+        g.take_shot(g.approach - 1, SHOT_UP);
         assert_eq!(g.opponent_target_y, 115.0);
-        g.shots.0.send((g.approach, Some("down".into()))).unwrap();
-        g.take_shot();
+        g.take_shot(g.approach, SHOT_DOWN);
         assert_eq!(g.opponent_target_y, 115.0 - AIM_SHIFT);
     }
 
     #[test]
-    fn reads_the_models_choice_and_clamps_like_java() {
-        assert_eq!(parse_choice(r#"{"result":{"choice" : "down","confidence":0.4}}"#).as_deref(), Some("down"));
-        assert_eq!(parse_choice(r#"{"errors":[]}"#), None);
-        let real = r#"{"result":{"model":"clef-flash","answers":{"shot":{"type":"choice","choice":"down","probabilities":{"up":0.27}}}}}"#;
-        assert_eq!(parse_choice(real).as_deref(), Some("down"));
+    fn reads_env_and_the_models_choice_and_clamps_like_java() {
+        assert_eq!(parse_choice(br#"{"result":{"choice" : "down","confidence":0.4}}"#), SHOT_DOWN);
+        assert_eq!(parse_choice(br#"{"errors":[]}"#), SHOT_NONE);
+        let real = br#"{"result":{"model":"clef-flash","answers":{"shot":{"type":"choice","choice":"up","probabilities":{"up":0.27}}}}}"#;
+        assert_eq!(parse_choice(real), SHOT_UP);
+        assert_eq!(parse_choice(br#""choice":"straight""#), SHOT_NONE);
         assert_eq!(keep_on_screen(-5.0, 600), 0.0);
         assert_eq!(keep_on_screen(550.0, 600), 500.0);
+        assert_eq!((floor(-1.5), ceil(-1.5), floor(2.0), ceil(2.25)), (-2.0, -1.0, 2.0, 3.0));
+
+        let env = b"# keys\r\nCLOUDFLARE_ACCOUNT_ID = abc123\r\nCLOUDFLARE_CLEF_API_KEY=k-ey_9\r\n";
+        assert_eq!(parse_env(env), Some((&b"k-ey_9"[..], &b"abc123"[..])));
+        assert_eq!(parse_env(b"CLOUDFLARE_CLEF_API_KEY=x\nCLOUDFLARE_ACCOUNT_ID=a b"), None);
+
+        let mut body = Buf::<u8, 1024>::new(0);
+        build_body(&mut body, 600, -450, 100);
+        let text = core::str::from_utf8(body.as_slice()).unwrap();
+        assert!(!body.full() && text.contains("is 600 tall") && text.contains("y=-450.") && text.ends_with("}}}}"));
+        let json_braces = text.matches('{').count() == text.matches('}').count();
+        assert!(json_braces, "{text}");
     }
 
     // Real network call with ../pong/.env: cargo test --release -- --ignored
@@ -878,8 +1169,15 @@ mod tests {
     #[ignore]
     fn live_model_answers() {
         std::env::set_current_dir("../pong").unwrap();
-        let api = load_api().expect("no keys in ../pong/.env");
-        let shot = ask_model(&api, 600, 450, 100).expect("no answer from clef-flash");
-        assert!(["up", "straight", "down"].contains(&shot.as_str()), "{shot}");
+        assert!(unsafe { open_api() }, "no keys in ../pong/.env");
+        for _ in 0..2 { // the second request reuses the connection
+            build_body(&mut API.get().body, 600, 450, 100);
+            REPLY.get().fill(0);
+            let started = std::time::Instant::now();
+            let shot = fetch_shot();
+            println!("shot {shot} in {:?}", started.elapsed());
+            let raw = String::from_utf8_lossy(&REPLY.get()[..]).trim_end_matches('\0').to_string();
+            assert!(raw.contains("\"choice\""), "no answer from clef-flash: {raw}");
+        }
     }
 }

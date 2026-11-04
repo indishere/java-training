@@ -1,0 +1,3 @@
+# no_std + raw-dylib needs no import libraries, so Rust's bundled lld links it: no Visual Studio.
+[target.x86_64-pc-windows-msvc]
+linker = "rust-lld"
