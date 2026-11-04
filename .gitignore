@@ -6,3 +6,5 @@ pong-rs.exe
 target/
 breakout.jar
 breakout.exe
+*.exe
+*.zip
