@@ -4,49 +4,71 @@ package objects;
 import java.awt.*;
 
 
+// The paddle moves with the arrow keys or the mouse.
 public class Paddle {
-    private static final int SPEED = 5;
-    private int x;
-    private final int y;
-    private final int width = 100;
-    private final int height = 20;
-    private final int maxX;
-    private int dir = 0;
+    private static final int HEIGHT = 14;
+    private static final int KEY_SPEED = 9;
+    private static final int EDGE_GAP = 8;
 
-    // Constructor: screenWidth is the area the paddle must stay inside
-    public Paddle(int x, int y, int screenWidth) {
-        this.x = x;
+    private final int width = 110;
+    private double x;       // middle of the paddle
+    private final int y;
+    private boolean movingLeft;
+    private boolean movingRight;
+    private double mouseTarget = -1;
+
+
+    public Paddle(int centerX, int y) {
+        x = centerX;
         this.y = y;
-        maxX = screenWidth - width;
     }
 
     // Called once per frame by the game loop
-    public void update() {
-        x = Math.max(0, Math.min(maxX, x + dir));
+    public void update(int screenWidth) {
+        if (mouseTarget >= 0) {
+            double distance = mouseTarget - x;
+            if (Math.abs(distance) <= KEY_SPEED) {
+                x = mouseTarget;
+            } else {
+                x += Math.signum(distance) * KEY_SPEED;
+            }
+        } else {
+            if (movingLeft) x -= KEY_SPEED;
+            if (movingRight) x += KEY_SPEED;
+        }
+
+        double half = width / 2.0;
+        if (x - half < EDGE_GAP) x = EDGE_GAP + half;
+        if (x + half > screenWidth - EDGE_GAP) x = screenWidth - EDGE_GAP - half;
     }
 
     public void draw(Graphics g) {
         g.setColor(Color.WHITE);
-        g.fillRect(x, y, width, height);
+        g.fillRect((int) x - width / 2, y, width, HEIGHT);
+    }
+
+    public void moveLeft(boolean on) {
+        movingLeft = on;
+        if (on) mouseTarget = -1;
+    }
+
+    public void moveRight(boolean on) {
+        movingRight = on;
+        if (on) mouseTarget = -1;
+    }
+
+    public void followMouse(int screenX) {
+        mouseTarget = screenX;
+    }
+
+    public void centerOn(int screenX) {
+        x = screenX;
     }
 
     public Rectangle getBounds() {
-        return new Rectangle(x, y, width, height);
+        return new Rectangle((int) x - width / 2, y, width, HEIGHT);
     }
 
-    public void moveRight() {
-        dir = SPEED;
-    }
-
-    public void moveLeft() {
-        dir = -SPEED;
-    }
-
-    public void stopRight() {
-        if (dir > 0) dir = 0;
-    }
-
-    public void stopLeft() {
-        if (dir < 0) dir = 0;
-    }
+    public int getWidth() { return width; }
+    public double getCenterX() { return x; }
 }
