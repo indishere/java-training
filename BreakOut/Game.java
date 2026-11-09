@@ -219,12 +219,65 @@ public class Game extends JPanel implements KeyListener {
         }
         paddle.draw(g);
         drawMessage(g);
+        drawHearts(g);
+    }
+
+    // Show three Minecraft-style hardcore hearts in the top-right corner.
+    void drawHearts(Graphics g) {
+        int startX = width - 20 - (3 * 34);
+
+        for (int i = 0; i < 3; i++) {
+            Color fill = i < lives ? Color.RED : new Color(60, 60, 60);
+            drawHeart(g, startX + (i * 34), 18, fill, i < lives);
+        }
+    }
+
+    void drawHeart(Graphics g, int x, int y, Color fill, boolean full) {
+        int unit = 2;
+
+        // Each pair is the start and end column of one row segment.
+        int[][] rows = {
+            {2, 4, 8, 10},
+            {1, 5, 7, 11},
+            {0, 12},
+            {0, 12},
+            {0, 12},
+            {1, 11},
+            {2, 10},
+            {3, 9},
+            {4, 8},
+            {5, 7},
+            {6, 6}
+        };
+
+        for (int row = 0; row < rows.length; row++) {
+            for (int part = 0; part < rows[row].length; part += 2) {
+                int start = rows[row][part];
+                int end = rows[row][part + 1];
+
+                g.setColor(Color.BLACK);
+                g.fillRect(x + start * unit, y + row * unit,
+                        (end - start + 1) * unit, unit);
+
+                if (end - start >= 4) {
+                    g.setColor(fill);
+                    g.fillRect(x + (start + 1) * unit, y + row * unit,
+                            (end - start - 1) * unit, unit);
+                }
+            }
+        }
+
+        if (full) {
+            g.setColor(new Color(255, 105, 105));
+            g.fillRect(x + 3 * unit, y + 2 * unit, 2 * unit, unit);
+        }
     }
 
     void drawMessage(Graphics g) {
         int center = Math.max(360, height / 2 - 30);
 
         if (state == State.READY) {
+            drawCentered(g, "LEVEL " + level, center - 55, new Font("SansSerif", Font.BOLD, 18));
             drawCentered(g, "BREAKOUT", center, new Font("SansSerif", Font.BOLD, 48));
             drawCentered(g, "PRESS SPACE TO LAUNCH", center + 40, new Font("SansSerif", Font.BOLD, 18));
         } else if (state == State.PAUSED) {
@@ -233,7 +286,8 @@ public class Game extends JPanel implements KeyListener {
             drawCentered(g, "PRESS P TO CONTINUE", center + 40, new Font("SansSerif", Font.BOLD, 18));
         } else if (state == State.LEVEL_CLEAR) {
             shadeScreen(g);
-            drawCentered(g, "LEVEL CLEARED", center, new Font("SansSerif", Font.BOLD, 42));
+            drawCentered(g, "LEVEL " + level + " CLEARED", center, new Font("SansSerif", Font.BOLD, 42));
+            drawCentered(g, "+" + (100 * level) + " BONUS", center + 40, new Font("SansSerif", Font.BOLD, 18));
         } else if (state == State.GAME_OVER) {
             shadeScreen(g);
             drawCentered(g, "GAME OVER", center - 20, new Font("SansSerif", Font.BOLD, 48));
