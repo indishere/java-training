@@ -12,7 +12,7 @@ public class Paddle {
 
     private final int width = 110;
     private double x;       // middle of the paddle
-    private final int y;
+    private int y;
     private boolean movingLeft;
     private boolean movingRight;
     private double mouseTarget = -1;
@@ -63,6 +63,10 @@ public class Paddle {
 
     public void centerOn(int screenX) {
         x = screenX;
+    }
+
+    public void setBottomY(int bottomY) {
+        y = bottomY;
     }
 
     public Rectangle getBounds() {

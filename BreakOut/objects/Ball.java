@@ -11,7 +11,7 @@ public class Ball {
     private double speedX;
     private double speedY;
     private double speed = 6;
-    private final int radius = 8;
+    private final int radius = 16;
 
 
     public Ball() {

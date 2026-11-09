@@ -15,7 +15,6 @@ public class Game extends JPanel implements KeyListener {
     static final int WIDTH = 800;
     static final int HEIGHT = 600;
     static final int FPS = 60;
-    static final int HUD_HEIGHT = 50;
     static final int MAX_LEVEL = 5;
 
     enum State {
@@ -95,13 +94,14 @@ public class Game extends JPanel implements KeyListener {
 
     // Called once per frame by the game loop
     void updateGame() {
+        updateWindowSize();
         paddle.update(width);
 
         if (state == State.READY) {
             ball.stickTo(paddle);
         } else if (state == State.PLAYING) {
             ball.update();
-            ball.bounceOffWalls(0, width, HUD_HEIGHT);
+            ball.bounceOffWalls(0, width, 0);
             ball.bounceOff(paddle);
 
             Brick hit = bricks.collide(ball);
@@ -126,6 +126,23 @@ public class Game extends JPanel implements KeyListener {
                 } else {
                     startLevel(level + 1);
                 }
+            }
+        }
+    }
+
+    // Keep the game filling the window when it is resized or maximized
+    void updateWindowSize() {
+        int newWidth = getWidth();
+        int newHeight = getHeight();
+
+        if (newWidth > 0 && newHeight > 0 && (newWidth != width || newHeight != height)) {
+            width = newWidth;
+            height = newHeight;
+            paddle.setBottomY(height - 42);
+            bricks.reflow(width);
+
+            if (state == State.READY) {
+                ball.stickTo(paddle);
             }
         }
     }
@@ -201,51 +218,38 @@ public class Game extends JPanel implements KeyListener {
             ball.draw(g);
         }
         paddle.draw(g);
-        drawHud(g);
         drawMessage(g);
     }
 
-    void drawHud(Graphics g) {
-        g.setColor(Color.WHITE);
-        g.setFont(new Font("SansSerif", Font.BOLD, 18));
-        g.drawString("SCORE " + score, 20, 32);
-        drawCentered(g, "LEVEL " + level, 32, g.getFont());
-        drawRight(g, "LIVES " + lives, width - 20, 32, g.getFont());
-
-        g.drawLine(0, HUD_HEIGHT, width, HUD_HEIGHT);
-
-        g.setFont(new Font("SansSerif", Font.PLAIN, 12));
-        drawCentered(g, "ARROWS/MOUSE: MOVE    SPACE: LAUNCH    P: PAUSE    R: RESTART",
-                height - 12, g.getFont());
-    }
-
     void drawMessage(Graphics g) {
+        int center = Math.max(360, height / 2 - 30);
+
         if (state == State.READY) {
-            drawCentered(g, "BREAKOUT", 380, new Font("SansSerif", Font.BOLD, 48));
-            drawCentered(g, "PRESS SPACE TO LAUNCH", 420, new Font("SansSerif", Font.BOLD, 18));
+            drawCentered(g, "BREAKOUT", center, new Font("SansSerif", Font.BOLD, 48));
+            drawCentered(g, "PRESS SPACE TO LAUNCH", center + 40, new Font("SansSerif", Font.BOLD, 18));
         } else if (state == State.PAUSED) {
             shadeScreen(g);
-            drawCentered(g, "PAUSED", 290, new Font("SansSerif", Font.BOLD, 48));
-            drawCentered(g, "PRESS P TO CONTINUE", 330, new Font("SansSerif", Font.BOLD, 18));
+            drawCentered(g, "PAUSED", center, new Font("SansSerif", Font.BOLD, 48));
+            drawCentered(g, "PRESS P TO CONTINUE", center + 40, new Font("SansSerif", Font.BOLD, 18));
         } else if (state == State.LEVEL_CLEAR) {
             shadeScreen(g);
-            drawCentered(g, "LEVEL CLEARED", 290, new Font("SansSerif", Font.BOLD, 42));
+            drawCentered(g, "LEVEL CLEARED", center, new Font("SansSerif", Font.BOLD, 42));
         } else if (state == State.GAME_OVER) {
             shadeScreen(g);
-            drawCentered(g, "GAME OVER", 270, new Font("SansSerif", Font.BOLD, 48));
-            drawCentered(g, "SCORE " + score, 310, new Font("SansSerif", Font.BOLD, 20));
-            drawCentered(g, "PRESS SPACE TO PLAY AGAIN", 350, new Font("SansSerif", Font.BOLD, 18));
+            drawCentered(g, "GAME OVER", center - 20, new Font("SansSerif", Font.BOLD, 48));
+            drawCentered(g, "SCORE " + score, center + 20, new Font("SansSerif", Font.BOLD, 20));
+            drawCentered(g, "PRESS SPACE TO PLAY AGAIN", center + 60, new Font("SansSerif", Font.BOLD, 18));
         } else if (state == State.WON) {
             shadeScreen(g);
-            drawCentered(g, "YOU WIN", 270, new Font("SansSerif", Font.BOLD, 48));
-            drawCentered(g, "SCORE " + score, 310, new Font("SansSerif", Font.BOLD, 20));
-            drawCentered(g, "PRESS SPACE TO PLAY AGAIN", 350, new Font("SansSerif", Font.BOLD, 18));
+            drawCentered(g, "YOU WIN", center - 20, new Font("SansSerif", Font.BOLD, 48));
+            drawCentered(g, "SCORE " + score, center + 20, new Font("SansSerif", Font.BOLD, 20));
+            drawCentered(g, "PRESS SPACE TO PLAY AGAIN", center + 60, new Font("SansSerif", Font.BOLD, 18));
         }
     }
 
     void shadeScreen(Graphics g) {
         g.setColor(Color.BLACK);
-        g.fillRect(0, HUD_HEIGHT + 1, width, height - HUD_HEIGHT - 1);
+        g.fillRect(0, 0, width, height);
     }
 
     void drawCentered(Graphics g, String text, int y, Font font) {
@@ -255,18 +259,13 @@ public class Game extends JPanel implements KeyListener {
         g.drawString(text, (width - metrics.stringWidth(text)) / 2, y);
     }
 
-    void drawRight(Graphics g, String text, int rightX, int y, Font font) {
-        g.setFont(font);
-        g.setColor(Color.WHITE);
-        g.drawString(text, rightX - g.getFontMetrics().stringWidth(text), y);
-    }
-
     public static void main(String[] args) {
         SwingUtilities.invokeLater(() -> {
             Game game = new Game();
             JFrame window = new JFrame("Breakout");
             window.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-            window.setResizable(false);
+            window.setResizable(true);
+            window.setMinimumSize(new Dimension(640, 480));
             window.add(game);
             window.pack();
             window.setLocationRelativeTo(null);

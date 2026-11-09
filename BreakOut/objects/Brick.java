@@ -6,10 +6,10 @@ import java.awt.*;
 
 // One brick knows its position, colour and score value.
 public class Brick {
-    private final int x;
-    private final int y;
-    private final int width;
-    private final int height;
+    private int x;
+    private int y;
+    private int width;
+    private int height;
     private final Color color;
     private final int points;
     private boolean alive = true;
@@ -36,6 +36,13 @@ public class Brick {
 
     public void destroy() {
         alive = false;
+    }
+
+    public void setBounds(int x, int y, int width, int height) {
+        this.x = x;
+        this.y = y;
+        this.width = width;
+        this.height = height;
     }
 
     public boolean isAlive() { return alive; }
