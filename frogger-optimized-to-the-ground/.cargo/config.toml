@@ -1,0 +1,6 @@
+# no_std + raw-dylib needs no import libraries for the msvc target, so Rust's
+# bundled lld links it with no Visual Studio. The gnullvm host target (the
+# toolchain installed on this machine) links with its own llvm-mingw lld and
+# needs no config: build.rs passes the CRT-free link args for it.
+[target.x86_64-pc-windows-msvc]
+linker = "rust-lld"

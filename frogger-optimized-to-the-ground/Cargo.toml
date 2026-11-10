@@ -1,0 +1,29 @@
+[package]
+name = "frogger-rs"
+version = "0.1.0"
+edition = "2024"
+
+# Same file compiles twice: as a no_std/no_main binary (linked with no C
+# runtime, entry mainCRTStartup below) and as a lib for `cargo test`, whose
+# tests run through libtest with std and normal linking.
+[lib]
+path = "main.rs"
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+opt-level = "z"
+# Full (fat) LTO hits a rustc 1.98.1-gnullvm bitcode-loader bug; thin LTO with
+# one codegen unit produces the same few-KB binary here.
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[[bin]]
+name = "frogger-rs"
+path = "main.rs"
+# The bin deliberately links no C runtime, so cargo's test harness (which needs
+# one) must not build it: `cargo test` compiles this file only as the lib.
+test = false
